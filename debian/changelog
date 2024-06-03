@@ -1,0 +1,5 @@
+truenas-api-client (1.0-0~truenas+1) electriceel-truenas-unstable; urgency=medium
+
+  * Initial release
+
+ -- Vladimir Vinogradenko <vladimirv@ixsystems.com>  Mon, 03 Jun 2024 15:46:00 +0200

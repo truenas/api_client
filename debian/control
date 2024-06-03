@@ -1,0 +1,22 @@
+Source: truenas-api-client
+Section: contrib/python
+Priority: optional
+Maintainer: Vladimir Vinogradenko <vladimirv@ixsystems.com>
+Build-Depends: debhelper-compat (= 12),
+               dh-python,
+               python3-all,
+               python3-fastentrypoints,
+               python3-libzfs,
+               python3-setuptools,
+               python3-websocket
+Standards-Version: 4.4.0
+Homepage: https://github.com/truenas/api_client
+
+Package: python3-truenas-api-client
+Architecture: all
+Depends: python3-libzfs,
+         python3-websocket
+         ${misc:Depends},
+         ${python3:Depends}
+Description: TrueNAS API client
+ This package provides TrueNAS API client.
