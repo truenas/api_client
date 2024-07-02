@@ -42,14 +42,14 @@ class ReserveFDException(Exception):
 
 
 class WSClient:
-    def __init__(self, url, *, client, reserved_ports=False, verify_ssl=True):
+    def __init__(self, url: str, *, client: 'Client', reserved_ports: bool=False, verify_ssl: bool=True):
         self.url = url
         self.client = client
         self.reserved_ports = reserved_ports
         self.verify_ssl = verify_ssl
 
-        self.socket = None
-        self.app = None
+        self.socket: socket.socket = None
+        self.app: WebSocketApp = None
 
     def connect(self):
         unix_socket_prefix = "ws+unix://"
@@ -84,8 +84,8 @@ class WSClient:
         )
         Thread(daemon=True, target=self.app.run_forever).start()
 
-    def send(self, data):
-        return self.app.send(data)
+    def send(self, data: bytes | str):
+        self.app.send(data)
 
     def close(self):
         self.app.close()
@@ -151,7 +151,7 @@ class WSClient:
 
 
 class Call:
-    def __init__(self, method, params):
+    def __init__(self, method: str, params: tuple):
         self.id = str(uuid.uuid4())
         self.method = method
         self.params = params
@@ -162,7 +162,7 @@ class Call:
 
 
 class Job:
-    def __init__(self, client, job_id, callback=None):
+    def __init__(self, client: 'Client', job_id: str, callback: Event=None):
         self.client = client
         self.job_id = job_id
         # If a job event has been received already then we must set an Event
@@ -211,7 +211,7 @@ class ErrnoMixin:
     ESSLCERTVERIFICATIONERROR = 208
 
     @classmethod
-    def _get_errname(cls, code):
+    def _get_errname(cls, code: int):
         if LIBZFS and 2000 <= code <= 2100:
             return 'EZFS_' + ZFSError(code).name
         for k, v in cls.__dict__.items():
@@ -220,7 +220,7 @@ class ErrnoMixin:
 
 
 class ClientException(ErrnoMixin, Exception):
-    def __init__(self, error, errno=None, trace=None, extra=None):
+    def __init__(self, error: str, errno: int=None, trace=None, extra=None):
         self.errno = errno
         self.error = error
         self.trace = trace
@@ -230,12 +230,15 @@ class ClientException(ErrnoMixin, Exception):
         return self.error
 
 
-Error = namedtuple('Error', ['attribute', 'errmsg', 'errcode'])
+class Error(NamedTuple):
+    attribute: str
+    errmsg: str
+    errcode: int
 
 
 class ValidationErrors(ClientException):
-    def __init__(self, errors):
-        self.errors = []
+    def __init__(self, errors: Iterable[tuple[str, str, int]]):
+        self.errors: list[Error] = []
         for e in errors:
             self.errors.append(Error(e[0], e[1], e[2]))
 
@@ -255,8 +258,8 @@ class CallTimeout(ClientException):
 
 
 class Client:
-    def __init__(self, uri=None, reserved_ports=False, py_exceptions=False, log_py_exceptions=False,
-                 call_timeout=undefined, verify_ssl=True):
+    def __init__(self, uri: str=None, reserved_ports: bool=False, py_exceptions=False, log_py_exceptions=False,
+                 call_timeout=undefined, verify_ssl: bool=True):
         """
         Arguments:
            :reserved_ports(bool): should the local socket used a reserved port
@@ -271,8 +274,8 @@ class Client:
         if call_timeout is undefined:
             call_timeout = CALL_TIMEOUT
 
-        self._calls = {}
-        self._jobs = defaultdict(dict)
+        self._calls: dict[str, Call] = {}
+        self._jobs: defaultdict[str, dict[str, Event | dict[str, str]]] = defaultdict(dict)
         self._jobs_lock = Lock()
         self._jobs_watching = False
         self._py_exceptions = py_exceptions
@@ -282,7 +285,7 @@ class Client:
         self._set_options_call: Call | None = None
         self._closed = Event()
         self._connected = Event()
-        self._connection_error = None
+        self._connection_error: str = None
         self._ws = WSClient(
             uri,
             client=self,
@@ -299,12 +302,12 @@ class Client:
     def __enter__(self):
         return self
 
-    def __exit__(self, typ, value, traceback):
+    def __exit__(self, typ: None, value, traceback):
         self.close()
         if typ is not None:
             raise
 
-    def _send(self, data):
+    def _send(self, data: dict):
         try:
             self._ws.send(json.dumps(data))
         except (AttributeError, WebSocketConnectionClosedException):
@@ -374,7 +377,7 @@ class Client:
         else:
             call.error = ClientException(code.name)
 
-    def _run_callback(self, event, args, kwargs):
+    def _run_callback(self, event: dict[str, Callable[[], object]], args: Iterable, kwargs: Mapping):
         if event['sync']:
             event['callback'](*args, **kwargs)
         else:
@@ -383,7 +386,7 @@ class Client:
     def on_open(self):
         self._set_options_call = self.call("core.set_options", {"py_exceptions": self._py_exceptions}, background=True)
 
-    def on_close(self, code, reason=None):
+    def on_close(self, code: int, reason: str | None=None):
         error = f'WebSocket connection closed with code={code!r}, reason={reason!r}'
 
         self._connection_error = error
@@ -411,13 +414,13 @@ class Client:
 
         self._closed.set()
 
-    def _register_call(self, call):
+    def _register_call(self, call: Call):
         self._calls[call.id] = call
 
     def _unregister_call(self, call):
         self._calls.pop(call.id, None)
 
-    def _jobs_callback(self, mtype, **message):
+    def _jobs_callback(self, mtype: str, **message):
         """
         Method to process the received job events.
         """
@@ -446,7 +449,7 @@ class Client:
         self._jobs_watching = True
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
-    def call(self, method, *params, background=False, callback=None, job=False, timeout=undefined):
+    def call(self, method: str, *params, background=False, callback=None, job=False, timeout=undefined):
         if timeout is undefined:
             timeout = self._call_timeout
 
@@ -473,7 +476,7 @@ class Client:
             if not background:
                 self._unregister_call(c)
 
-    def wait(self, c, *, callback=None, job=False, timeout=undefined):
+    def wait(self, c: Call, *, callback=None, job=False, timeout=undefined):
         if timeout is undefined:
             timeout = self._call_timeout
 
@@ -507,7 +510,7 @@ class Client:
             'event': Event(),
         }
 
-    def subscribe(self, name, callback, payload=None, sync=False):
+    def subscribe(self, name: str, callback, payload: dict[str, ]=None, sync=False):
         payload = payload or self.event_payload()
         payload.update({
             'callback': callback,
@@ -538,6 +541,40 @@ class Client:
 
 
 def main():
+    """The entry point for the client.
+
+    The API client can be interfaced with using the `midclt` command.
+
+    Sub-commands:
+        call [-h] [-j job] [-jp {progressbar, description}] method [method ...]:
+            Call an API method(s).
+        ping [-h]:
+            Ping!
+        waitready [-h]:
+            Wait server.
+        sql [-h] sql [sql ...]:
+            Execute a SQL command(s).
+        subscribe [-h] [-n number] [-t timeout] event:
+            Subscribe to an event.
+
+    Options:
+        -h, --help:
+            help
+        -q, --quiet:
+            quiet
+        -u, --uri:
+            URI
+        -U, --username:
+            username
+        -P, --password:
+            password
+        -K, --api-key
+            API key
+        -t, --timeout
+            timeout
+
+    """
+
     parser = argparse.ArgumentParser()
     parser.add_argument('-q', '--quiet', action='store_true')
     parser.add_argument('-u', '--uri')

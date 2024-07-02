@@ -1,5 +1,7 @@
 import sys
 
+from typing import Any, TextIO, Mapping
+
 
 MIDDLEWARE_RUN_DIR = '/var/run/middleware'
 undefined = object()
@@ -12,7 +14,7 @@ class Struct:
     client instead of django directly.
     """
 
-    def __init__(self, mapping):
+    def __init__(self, mapping: Mapping[str, Any]):
         for k, v in mapping.items():
             if isinstance(v, dict):
                 setattr(self, k, Struct(v))
@@ -22,10 +24,10 @@ class Struct:
 
 class ProgressBar(object):
     def __init__(self):
-        self.message = None
-        self.percentage = 0
-        self.write_stream = sys.stderr
-        self.used_flag = False
+        self.message: str = None
+        self.percentage: float = 0
+        self.write_stream: TextIO = sys.stderr
+        self.used_flag: bool = False
         self.extra = None
 
     def __enter__(self):
@@ -47,7 +49,7 @@ class ProgressBar(object):
         )
         self.write_stream.flush()
 
-    def update(self, percentage=None, message=None):
+    def update(self, percentage: float=None, message: str=None):
         if not self.used_flag:
             self.write_stream.write('\n')
             self.used_flag = True

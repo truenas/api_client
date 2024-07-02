@@ -19,7 +19,7 @@ class JSONEncoder(json.JSONEncoder):
         return super(JSONEncoder, self).default(obj)
 
 
-def object_hook(obj):
+def object_hook(obj: dict):
     obj_len = len(obj)
     if obj_len == 1:
         if '$date' in obj:
