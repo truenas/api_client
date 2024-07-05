@@ -33,8 +33,8 @@ class JSONEncoder(json.JSONEncoder):
     | datetime.datetime | {"$date": number[Total milliseconds since EPOCH]} |
     | datetime.time     | {"$time": string[HH:MM:SS]}                       |
     | set               | {"$set": array[item1, item2, ...]}                |
-    """
 
+    """
     @override
     def default(self, obj: date | datetime | time | set) -> dict[str, str | int | list]:
         if type(obj) is date:
@@ -52,9 +52,10 @@ class JSONEncoder(json.JSONEncoder):
 
 
 def object_hook(obj: dict):
-    """Additionally decode serialized `date`, `time`, `datetime`, and `set` objects.
+    """Used when deserializing `date`, `time`, `datetime`, and `set` objects.
     
     Passed as a kwarg to a JSON deserialization function like `json.dump()`.
+
     """
     obj_len = len(obj)
     if obj_len == 1:
@@ -75,6 +76,7 @@ def dump(obj, fp, **kwargs):
     
     Can serialize `date`, `time`, `datetime`, and `set` objects
     to a file-like object.
+
     """
     return json.dump(obj, fp, cls=JSONEncoder, **kwargs)
 
@@ -83,6 +85,7 @@ def dumps(obj, **kwargs) -> str:
     """Wraps `json.dumps()` and uses the custom `JSONEncoder`.
     
     Can serialize `date`, `time`, `datetime`, and `set` objects.
+
     """
     return json.dumps(obj, cls=JSONEncoder, **kwargs)
 
@@ -91,5 +94,6 @@ def loads(obj: str | bytes | bytearray, **kwargs):
     """Wraps `json.loads()` and uses a custom `object_hook` argument.
     
     Can deserialize `date`, `time`, `datetime`, and `set` objects.
+
     """
     return json.loads(obj, object_hook=object_hook, **kwargs)
