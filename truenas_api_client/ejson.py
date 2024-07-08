@@ -11,7 +11,7 @@ Example::
     >>> obj = {'string', 4, date.today(), time(16, 22, 6)}
     >>> serialized = dumps(obj)
     >>> serialized
-    {"$set": ["string", 4, {"$type": "date", "$value": "2024-07-03"}, {"$time": "16:22:06"}]}
+    {"$set": [4, {"$type": "date", "$value": "2024-07-03"}, "string", {"$time": "16:22:06"}]}
     >>> deserialized = loads(serialized)
 
 """
@@ -32,7 +32,10 @@ class JSONEncoder(json.JSONEncoder):
     | datetime.date     | {"$type": "date", "$value": string[YYYY-MM-DD]}   |
     | datetime.datetime | {"$date": number[Total milliseconds since EPOCH]} |
     | datetime.time     | {"$time": string[HH:MM:SS]}                       |
-    | set               | {"$set": array[item1, item2, ...]}                |
+    | set               | {"$set": array[items...]}                         |
+
+    Note: When serializing Python sets, the order that the elements appear in
+    the JSON array is undefined.
 
     """
     @override
@@ -53,7 +56,7 @@ class JSONEncoder(json.JSONEncoder):
 
 def object_hook(obj: dict):
     """Used when deserializing `date`, `time`, `datetime`, and `set` objects.
-    
+
     Passed as a kwarg to a JSON deserialization function like `json.dump()`.
 
     """
@@ -73,7 +76,7 @@ def object_hook(obj: dict):
 
 def dump(obj, fp, **kwargs):
     """Wraps `json.dump()` and uses the custom `JSONEncoder`.
-    
+
     Can serialize `date`, `time`, `datetime`, and `set` objects
     to a file-like object.
 
@@ -83,7 +86,7 @@ def dump(obj, fp, **kwargs):
 
 def dumps(obj, **kwargs) -> str:
     """Wraps `json.dumps()` and uses the custom `JSONEncoder`.
-    
+
     Can serialize `date`, `time`, `datetime`, and `set` objects.
 
     """
@@ -92,7 +95,7 @@ def dumps(obj, **kwargs) -> str:
 
 def loads(obj: str | bytes | bytearray, **kwargs):
     """Wraps `json.loads()` and uses a custom `object_hook` argument.
-    
+
     Can deserialize `date`, `time`, `datetime`, and `set` objects.
 
     """

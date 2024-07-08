@@ -1,3 +1,11 @@
+"""A nice summary.
+
+Attributes:
+    LIBZFS:
+    logger:
+    CALL_TIMEOUT:
+
+"""
 import argparse
 from base64 import b64decode
 from collections import defaultdict, namedtuple
@@ -11,6 +19,7 @@ import socket
 import sys
 from threading import Event, Lock, Thread
 import time
+from typing import Callable, Iterable, Mapping, NamedTuple
 import urllib.parse
 import uuid
 
@@ -38,11 +47,23 @@ CALL_TIMEOUT = int(os.environ.get('CALL_TIMEOUT', 60))
 
 
 class ReserveFDException(Exception):
+    """Todo."""
     pass
 
 
 class WSClient:
+    """Todo."""
+
     def __init__(self, url: str, *, client: 'Client', reserved_ports: bool=False, verify_ssl: bool=True):
+        """Initialize a `WSClient`.
+
+        Args:
+            url:
+            client:
+            reserved_ports:
+            verify_ssl:
+
+        """
         self.url = url
         self.client = client
         self.reserved_ports = reserved_ports
@@ -52,6 +73,8 @@ class WSClient:
         self.app: WebSocketApp = None
 
     def connect(self):
+        """Connect to a socket and run a `WebSocketApp` in a new `Thread`."""
+
         unix_socket_prefix = "ws+unix://"
         if self.url.startswith(unix_socket_prefix):
             self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -85,9 +108,16 @@ class WSClient:
         Thread(daemon=True, target=self.app.run_forever).start()
 
     def send(self, data: bytes | str):
+        """Wrapper for the `WebSocketApp.send()` method to send data to the server.
+
+        Args:
+            data:
+
+        """
         self.app.send(data)
 
     def close(self):
+        """Close."""
         self.app.close()
         self.client.on_close(STATUS_NORMAL)
 
@@ -151,7 +181,16 @@ class WSClient:
 
 
 class Call:
+    """`Call`."""
+
     def __init__(self, method: str, params: tuple):
+        """Init.
+        
+        Args:
+            method:
+            params:
+
+        """
         self.id = str(uuid.uuid4())
         self.method = method
         self.params = params
@@ -162,7 +201,17 @@ class Call:
 
 
 class Job:
+    """A `Job`."""
+
     def __init__(self, client: 'Client', job_id: str, callback: Event=None):
+        """Initialize `Job`.
+        
+        Args:
+            client:
+            job_id:
+            callback:
+
+        """
         self.client = client
         self.job_id = job_id
         # If a job event has been received already then we must set an Event
@@ -180,6 +229,12 @@ class Job:
         return f'<Job[{self.job_id}]>'
 
     def result(self):
+        """result.
+        
+        Returns:
+
+
+        """
         # Wait indefinitely for the job event with state SUCCESS/FAILED/ABORTED
         self.event.wait()
         job = self.client._jobs.pop(self.job_id, None)
@@ -201,6 +256,8 @@ class Job:
 
 
 class ErrnoMixin:
+    """Todo."""
+
     ENOMETHOD = 201
     ESERVICESTARTFAILURE = 202
     EALERTCHECKERUNAVAILABLE = 203
@@ -208,6 +265,7 @@ class ErrnoMixin:
     EDATASETISLOCKED = 205
     EINVALIDRRDTIMESTAMP = 206
     ENOTAUTHENTICATED = 207
+    """Todo"""
     ESSLCERTVERIFICATIONERROR = 208
 
     @classmethod
@@ -220,7 +278,18 @@ class ErrnoMixin:
 
 
 class ClientException(ErrnoMixin, Exception):
+    """Todo."""
+
     def __init__(self, error: str, errno: int=None, trace=None, extra=None):
+        """Initialize `ClientException`.
+        
+        Args:
+            error:
+            errno:
+            trace:
+            extra:
+
+        """
         self.errno = errno
         self.error = error
         self.trace = trace
@@ -231,13 +300,23 @@ class ClientException(ErrnoMixin, Exception):
 
 
 class Error(NamedTuple):
+    """Todo."""
+
     attribute: str
     errmsg: str
     errcode: int
 
 
 class ValidationErrors(ClientException):
+    """Todo."""
+
     def __init__(self, errors: Iterable[tuple[str, str, int]]):
+        """Initialize `ValidationErrors`.
+        
+        Args:
+            errors:
+
+        """
         self.errors: list[Error] = []
         for e in errors:
             self.errors.append(Error(e[0], e[1], e[2]))
@@ -253,16 +332,26 @@ class ValidationErrors(ClientException):
 
 
 class CallTimeout(ClientException):
+    """A special `ClientException` raised when a `Call` times out before it can return a result."""
     def __init__(self):
         super().__init__("Call timeout", errno.ETIMEDOUT)
 
 
 class Client:
+    """Todo."""
+
     def __init__(self, uri: str=None, reserved_ports: bool=False, py_exceptions=False, log_py_exceptions=False,
                  call_timeout=undefined, verify_ssl: bool=True):
-        """
-        Arguments:
-           :reserved_ports(bool): should the local socket used a reserved port
+        """Initialize a `Client`.
+
+        Args:
+            uri:
+            reserved_ports: `True` if the local socket should use a reserved port.
+            py_exceptions:
+            log_py_exceptions:
+            call_timeout:
+            verify_ssl:
+
         """
         if uri is None:
             uri = f'ws+unix://{MIDDLEWARE_RUN_DIR}/middlewared.sock'
@@ -384,9 +473,17 @@ class Client:
             Thread(target=event['callback'], args=args, kwargs=kwargs, daemon=True).start()
 
     def on_open(self):
+        """Make an API call to `core.set_options`."""
         self._set_options_call = self.call("core.set_options", {"py_exceptions": self._py_exceptions}, background=True)
 
     def on_close(self, code: int, reason: str | None=None):
+        """todo.
+        
+        Args:
+            code:
+            reason:
+
+        """
         error = f'WebSocket connection closed with code={code!r}, reason={reason!r}'
 
         self._connection_error = error
@@ -421,9 +518,7 @@ class Client:
         self._calls.pop(call.id, None)
 
     def _jobs_callback(self, mtype: str, **message):
-        """
-        Method to process the received job events.
-        """
+        """Method to process the received job events."""
         fields = message.get('fields')
         job_id = fields['id']
         with self._jobs_lock:
@@ -443,13 +538,25 @@ class Client:
                     event.set()
 
     def _jobs_subscribe(self):
-        """
-        Subscribe to job updates, calling `_jobs_callback` on every new event.
-        """
+        """Subscribe to job updates, calling `_jobs_callback` on every new event."""
         self._jobs_watching = True
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
     def call(self, method: str, *params, background=False, callback=None, job=False, timeout=undefined):
+        """call.
+        
+        Args:
+            method:
+            *params:
+            background:
+            callback:
+            job:
+            timeout:
+
+        Returns:
+
+
+        """
         if timeout is undefined:
             timeout = self._call_timeout
 
@@ -477,6 +584,18 @@ class Client:
                 self._unregister_call(c)
 
     def wait(self, c: Call, *, callback=None, job=False, timeout=undefined):
+        """wait.
+        
+        Args:
+            c:
+            callback:
+            job:
+            timeout:
+
+        Returns:
+
+
+        """
         if timeout is undefined:
             timeout = self._call_timeout
 
@@ -504,13 +623,31 @@ class Client:
 
     @staticmethod
     def event_payload():
+        """Return an empty payload.
+        
+        Returns:
+            dict: 
+        
+        """
         return {
             'callback': None,
             'sync': False,
             'event': Event(),
         }
 
-    def subscribe(self, name: str, callback, payload: dict[str, ]=None, sync=False):
+    def subscribe(self, name: str, callback, payload: dict=None, sync=False):
+        """Subscribe to an event.
+
+        Args:
+            name:
+            callback:
+            payload:
+            sync:
+
+        Returns:
+
+
+        """
         payload = payload or self.event_payload()
         payload.update({
             'callback': callback,
@@ -521,6 +658,12 @@ class Client:
         return payload['id']
 
     def unsubscribe(self, id_):
+        """Unsubscribe.
+        
+        Args:
+            id_:
+
+        """
         self.call('core.unsubscribe', id_)
         for k, events in list(self._event_callbacks.items()):
             events = [v for v in events if v['id'] != id_]
@@ -530,10 +673,20 @@ class Client:
                 self._event_callbacks.pop(k)
 
     def ping(self, timeout=10):
+        """Ping!
+        
+        Args:
+            timeout:
+        
+        Returns:
+
+
+        """
         c = self.call('core.ping', background=True)
         return c.wait(timeout)
 
     def close(self):
+        """close."""
         self._ws.close()
         # Wait for websocketclient thread to close
         self._closed.wait(1)
