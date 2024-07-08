@@ -331,8 +331,6 @@ class Client:
                                 if 'error' in params:
                                     event['error'] = params['error']['reason'] or params['error']
                                 event['event'].set()
-                    case 'ready':
-                        self._connected.set()
                     case _:
                         logger.error('Received unknown notification %r', message['method'])
             elif 'id' in message:
@@ -364,13 +362,15 @@ class Client:
 
     def _parse_error(self, error: dict, call: Call):
         code = JSONRPCError(error['code'])
-        if code == JSONRPCError.INVALID_PARAMS:
+        if self._py_exceptions and code in [JSONRPCError.INVALID_PARAMS, JSONRPCError.TRUENAS_CALL_ERROR]:
+            data = error['data']
+            call.error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
+            call.py_exception = pickle.loads(b64decode(error['data']['py_exception']))
+        elif code == JSONRPCError.INVALID_PARAMS:
             call.error = ValidationErrors(error['data']['extra'])
         elif code == JSONRPCError.TRUENAS_CALL_ERROR:
             data = error['data']
             call.error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
-            if self._py_exceptions and 'py_exception' in data:
-                call.py_exception = pickle.loads(b64decode(data['py_exception']))
         else:
             call.error = ClientException(code.name)
 
