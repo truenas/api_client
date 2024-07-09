@@ -450,7 +450,10 @@ class Client:
         self._jobs_watching = True
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
-    def call(self, method, *params, background=False, callback=None, job=False, timeout=undefined):
+    def call(self, method, *params, background=False, callback=None, job=False, register_call=None, timeout=undefined):
+        if register_call is None:
+            register_call = not background
+
         if timeout is undefined:
             timeout = self._call_timeout
 
@@ -459,7 +462,7 @@ class Client:
             self._jobs_subscribe()
 
         c = Call(method, params)
-        if not background:
+        if register_call:
             self._register_call(c)
         try:
             self._send({
