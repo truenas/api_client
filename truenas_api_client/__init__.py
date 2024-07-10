@@ -365,7 +365,8 @@ class Client:
         if self._py_exceptions and code in [JSONRPCError.INVALID_PARAMS, JSONRPCError.TRUENAS_CALL_ERROR]:
             data = error['data']
             call.error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
-            call.py_exception = pickle.loads(b64decode(error['data']['py_exception']))
+            if data.get('py_exception'):
+                call.py_exception = pickle.loads(b64decode(data['py_exception']))
         elif code == JSONRPCError.INVALID_PARAMS:
             call.error = ValidationErrors(error['data']['extra'])
         elif code == JSONRPCError.TRUENAS_CALL_ERROR:
