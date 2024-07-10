@@ -534,8 +534,8 @@ class Client:
                 self._event_callbacks.pop(k)
 
     def ping(self, timeout=10):
-        c = self.call('core.ping', background=True)
-        return c.wait(timeout)
+        c = self.call('core.ping', background=True, register_call=True)
+        return self.wait(c, timeout=timeout)
 
     def close(self):
         self._ws.close()
