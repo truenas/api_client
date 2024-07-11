@@ -1,14 +1,14 @@
-"""A nice summary.
+"""Todo.
 
 Attributes:
-    LIBZFS:
-    logger:
-    CALL_TIMEOUT:
+    logger (logging.Logger): Object used to log errors and warnings.
+    LIBZFS (bool): `True` if `libzfs.Error` was successfully imported. Only `False` in CI/CD.
+    CALL_TIMEOUT (int): Default number of seconds to allow an API call until timing out.
 
 """
 import argparse
 from base64 import b64decode
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 import errno
 import logging
 import os
@@ -19,7 +19,7 @@ import socket
 import sys
 from threading import Event, Lock, Thread
 import time
-from typing import Callable, Iterable, Mapping, NamedTuple
+from typing import Any, Callable, Iterable, Literal, Mapping, NamedTuple, TypedDict
 import urllib.parse
 import uuid
 
@@ -47,7 +47,7 @@ CALL_TIMEOUT = int(os.environ.get('CALL_TIMEOUT', 60))
 
 
 class ReserveFDException(Exception):
-    """Todo."""
+    """Raised when a `WSClient` instance fails to bind to a reserved port."""
     pass
 
 
@@ -58,10 +58,10 @@ class WSClient:
         """Initialize a `WSClient`.
 
         Args:
-            url:
+            url: The address to connect to. May be a Unix socket.
             client:
             reserved_ports:
-            verify_ssl:
+            verify_ssl: `True` if SSL certificate should be verified before connecting.
 
         """
         self.url = url
@@ -181,14 +181,14 @@ class WSClient:
 
 
 class Call:
-    """`Call`."""
+    """An encapsulation of the data from a single request-response pair."""
 
     def __init__(self, method: str, params: tuple):
-        """Init.
-        
+        """Initialize a `Call` object with an automatically-assigned id.
+
         Args:
-            method:
-            params:
+            method: The API endpoint being called.
+            params: Parameters passed to the method.
 
         """
         self.id = str(uuid.uuid4())
@@ -203,9 +203,9 @@ class Call:
 class Job:
     """A `Job`."""
 
-    def __init__(self, client: 'Client', job_id: str, callback: Event=None):
+    def __init__(self, client: 'Client', job_id: str, callback=None):
         """Initialize `Job`.
-        
+
         Args:
             client:
             job_id:
@@ -220,7 +220,7 @@ class Job:
         # the job event arrives to use existing event.
         with client._jobs_lock:
             job = client._jobs[job_id]
-            self.event = job.get('__ready')
+            self.event: Event = job.get('__ready')
             if self.event is None:
                 self.event = job['__ready'] = Event()
             job['__callback'] = callback
@@ -229,10 +229,11 @@ class Job:
         return f'<Job[{self.job_id}]>'
 
     def result(self):
-        """result.
-        
-        Returns:
+        """Wait for the job to finish and return its result.
 
+        Returns:
+            NoReturn: If the job was not received or it did not succeed, raise a `ClientException`.
+            Any: Otherwise, return the job's result.
 
         """
         # Wait indefinitely for the job event with state SUCCESS/FAILED/ABORTED
@@ -256,20 +257,27 @@ class Job:
 
 
 class ErrnoMixin:
-    """Todo."""
+    """Provides `ClientException` with a list of custom error codes and a way to get the name of an error code."""
 
     ENOMETHOD = 201
+    """Service not found or method not found in service."""
     ESERVICESTARTFAILURE = 202
+    """Service failed to start."""
     EALERTCHECKERUNAVAILABLE = 203
+    """Alert checker unavailable."""
     EREMOTENODEERROR = 204
+    """Remote node responded with an error."""
     EDATASETISLOCKED = 205
+    """Locked datasets."""
     EINVALIDRRDTIMESTAMP = 206
+    """Invalid RRD timestamp."""
     ENOTAUTHENTICATED = 207
-    """Todo"""
+    """Client not authenticated."""
     ESSLCERTVERIFICATIONERROR = 208
+    """SSL certificate/host key could not be verified."""
 
     @classmethod
-    def _get_errname(cls, code: int):
+    def _get_errname(cls, code: int) -> str:
         if LIBZFS and 2000 <= code <= 2100:
             return 'EZFS_' + ZFSError(code).name
         for k, v in cls.__dict__.items():
@@ -277,17 +285,20 @@ class ErrnoMixin:
                 return k
 
 
-class ClientException(ErrnoMixin, Exception):
-    """Todo."""
+ClientExceptionTraceback = TypedDict('ClientExceptionTraceback', {'class': Any, 'formatted': Any, 'repr': Any})
 
-    def __init__(self, error: str, errno: int=None, trace=None, extra=None):
+
+class ClientException(ErrnoMixin, Exception):
+    """Represents any exception that might arise from a `Client`."""
+
+    def __init__(self, error: str, errno: int=None, trace: ClientExceptionTraceback=None, extra=None):
         """Initialize `ClientException`.
-        
+
         Args:
-            error:
-            errno:
-            trace:
-            extra:
+            error: An error message offering a reason for the exception.
+            errno: An error code to classify the error.
+            trace: A dictionary containing the traceback information.
+            extra: Any extra data pertaining to the exception.
 
         """
         self.errno = errno
@@ -300,7 +311,7 @@ class ClientException(ErrnoMixin, Exception):
 
 
 class Error(NamedTuple):
-    """Todo."""
+    """The data type contained in `ValidationErrors`."""
 
     attribute: str
     errmsg: str
@@ -312,7 +323,7 @@ class ValidationErrors(ClientException):
 
     def __init__(self, errors: Iterable[tuple[str, str, int]]):
         """Initialize `ValidationErrors`.
-        
+
         Args:
             errors:
 
@@ -337,20 +348,30 @@ class CallTimeout(ClientException):
         super().__init__("Call timeout", errno.ETIMEDOUT)
 
 
-class Client:
-    """Todo."""
+class Payload(TypedDict):
+    callback: Callable
+    sync: bool
+    event: Event
 
-    def __init__(self, uri: str=None, reserved_ports: bool=False, py_exceptions=False, log_py_exceptions=False,
-                 call_timeout=undefined, verify_ssl: bool=True):
+
+class Client:
+    """The object used to interface with the TrueNAS API.
+    
+    Keeps track of the calls made, jobs submitted, and callbacks; maintains a connection using a `WSClient`.
+    
+    """
+    def __init__(self, uri: str | None=None, reserved_ports: bool=False, py_exceptions=False, log_py_exceptions=False,
+                 call_timeout: float=undefined, verify_ssl: bool=True):
         """Initialize a `Client`.
 
         Args:
-            uri:
+            uri: The address to connect to. Defaults to the middlewared socket.
             reserved_ports: `True` if the local socket should use a reserved port.
-            py_exceptions:
-            log_py_exceptions:
-            call_timeout:
-            verify_ssl:
+            py_exceptions: Todo.
+            log_py_exceptions: `True` if exceptions from API calls should be logged.
+            call_timeout: Number of seconds to allow an API call before timing out. Can be overridden on a per-call
+                basis. Defaults to `CALL_TIMEOUT`.
+            verify_ssl: `True` if SSL certificate should be verified before connecting.
 
         """
         if uri is None:
@@ -364,13 +385,13 @@ class Client:
             call_timeout = CALL_TIMEOUT
 
         self._calls: dict[str, Call] = {}
-        self._jobs: defaultdict[str, dict[str, Event | dict[str, str]]] = defaultdict(dict)
+        self._jobs: defaultdict[str, dict[str, Any]] = defaultdict(dict)
         self._jobs_lock = Lock()
         self._jobs_watching = False
         self._py_exceptions = py_exceptions
         self._log_py_exceptions = log_py_exceptions
         self._call_timeout = call_timeout
-        self._event_callbacks = defaultdict(list)
+        self._event_callbacks: dict[str, list[Payload]] = defaultdict(list)
         self._set_options_call: Call | None = None
         self._closed = Event()
         self._connected = Event()
@@ -478,7 +499,7 @@ class Client:
 
     def on_close(self, code: int, reason: str | None=None):
         """todo.
-        
+
         Args:
             code:
             reason:
@@ -542,18 +563,25 @@ class Client:
         self._jobs_watching = True
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
-    def call(self, method: str, *params, background=False, callback=None, job=False, timeout=undefined):
-        """call.
-        
+    def call(self, method: str, *params, background=False, callback: Callable | None=None,
+             job: Literal['RETURN'] | bool=False, timeout: float=undefined):
+        """The primary way to send call requests to the API.
+
+        Send a JSON-RPC v2.0 request to the server.
+
         Args:
-            method:
-            *params:
-            background:
-            callback:
-            job:
-            timeout:
+            method: An API endpoint to call.
+            *params: Arguments to pass to the endpoint.
+            background: If `background=True`, send the request and return a `Call` object before receiving a response.
+                By default, wait for the call to return instead.
+            callback: The callback to pass to the job if `job` is set.
+            job: If set, subscribe to job updates and if `background=False`, create a `Job`. If `job='RETURN'`, return
+                the `Job` object rather than just its result.
+            timeout: Number of seconds to allow the call before timing out if `background=False`.
 
         Returns:
+            None: If the call fails due to timeout or some other `ClientException`, return None.
+            Call: If `background` is set, return an object representing the request-response pair.
 
 
         """
@@ -583,17 +611,20 @@ class Client:
             if not background:
                 self._unregister_call(c)
 
-    def wait(self, c: Call, *, callback=None, job=False, timeout=undefined):
-        """wait.
+    def wait(self, c: Call, *, callback: Callable | None=None, job: Literal['RETURN'] | bool=False,
+             timeout: float=undefined):
+        """Wait for an API call to return and return its result.
         
         Args:
-            c:
-            callback:
-            job:
-            timeout:
+            c: The `Call` object containing the data that was sent.
+            callback: The callback to pass to the job if `job` is set.
+            job: If set, create a `Job`. If `job='RETURN'`, return the `Job` object rather than just its result.
+            timeout: Override the default number of seconds until a timeout exception occurs.
 
         Returns:
-
+            NoReturn: If the call times out or returns an error, raise the error.
+            Job: If `job='RETURN'`, return the `Job` object.
+            Any: If `job=True`, return the job's result. Otherwise, return the call's result.
 
         """
         if timeout is undefined:
@@ -622,11 +653,11 @@ class Client:
             self._unregister_call(c)
 
     @staticmethod
-    def event_payload():
+    def event_payload() -> Payload:
         """Return an empty payload.
         
         Returns:
-            dict: 
+            Payload: 
         
         """
         return {
@@ -635,11 +666,11 @@ class Client:
             'event': Event(),
         }
 
-    def subscribe(self, name: str, callback, payload: dict=None, sync=False):
-        """Subscribe to an event.
+    def subscribe(self, name: str, callback: Callable, payload: Payload | None=None, sync: bool=False):
+        """Subscribe to an event by calling `core.subscribe`.
 
         Args:
-            name:
+            name: The event to subscribe to.
             callback:
             payload:
             sync:
