@@ -52,15 +52,18 @@ class ReserveFDException(Exception):
 
 
 class WSClient:
-    """Todo."""
+    """A supporter class for `Client` that manages the `WebSocket` connection to the server.
+    
+    The object used by `Client` to send and receive data.    
 
+    """
     def __init__(self, url: str, *, client: 'Client', reserved_ports: bool=False, verify_ssl: bool=True):
         """Initialize a `WSClient`.
 
         Args:
             url: The address to connect to. May be a Unix socket.
-            client:
-            reserved_ports:
+            client: Reference to the `Client` instance that uses this object.
+            reserved_ports: `True` if the `socket` should bind to a reserved port, i.e. 600-1024.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
 
         """
@@ -73,7 +76,7 @@ class WSClient:
         self.app: WebSocketApp = None
 
     def connect(self):
-        """Connect to a socket and run a `WebSocketApp` in a new `Thread`."""
+        """Connect a `socket` and run a `WebSocketApp` in a new `Thread`."""
 
         unix_socket_prefix = "ws+unix://"
         if self.url.startswith(unix_socket_prefix):
@@ -94,7 +97,7 @@ class WSClient:
         else:
             sockopt = sock_opt(None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE})
             sockopt.timeout = 10
-            self.socket = connect(self.url, sockopt, proxy_info(), None)[0]
+            self.socket = connect(self.url, sockopt, proxy_info(), None)[0]  # websocket._http.connect()
             app_url = self.url
 
         self.app = WebSocketApp(
@@ -108,20 +111,25 @@ class WSClient:
         Thread(daemon=True, target=self.app.run_forever).start()
 
     def send(self, data: bytes | str):
-        """Wrapper for the `WebSocketApp.send()` method to send data to the server.
+        """Send a request to the server by calling `WebSocketApp.send()`.
 
         Args:
-            data:
+            data: The JSON-RPC v2.0-formatted request to send.
 
         """
         self.app.send(data)
 
     def close(self):
-        """Close."""
+        """Cleanly close the `WebSocket` connection to the server."""
         self.app.close()
         self.client.on_close(STATUS_NORMAL)
 
     def _bind_to_reserved_port(self):
+        """Bind to a random port in the 600-1024 range. 
+
+        Raise an exception after five failed attempts with different ports.
+
+        """
         # linux doesn't have a mechanism to allow the kernel to dynamically
         # assign ports in the "privileged" range (i.e. 600 - 1024) so we
         # loop through and call bind() on a privileged port explicitly since
@@ -146,6 +154,11 @@ class WSClient:
         raise ReserveFDException()
 
     def _on_open(self, app):
+        """Callback passed to the `WebSocketApp` to execute when `run_forever` is called.
+
+        Configure the `socket`.
+
+        """
         # TCP keepalive settings don't apply to local unix sockets
         if 'ws+unix' not in self.url:
             # enable keepalives on the socket
@@ -171,12 +184,27 @@ class WSClient:
         self.client.on_open()
 
     def _on_message(self, app, data):
+        """Callback passed to the `WebSocketApp` to execute when data is received.
+
+        Pass the data to the `Client`.
+
+        """
         self.client._recv(json.loads(data))
 
     def _on_error(self, app, e):
+        """Callback passed to the `WebSocketApp` to execute when an error occurs.
+
+        Log the error.
+
+        """
         logger.warning("Websocket client error: %r", e)
 
     def _on_close(self, app, code, reason):
+        """Callback passed to the `WebSocketApp` to execute when it closes.
+
+        Close the `Client`.
+
+        """
         self.client.on_close(code, reason)
 
 
@@ -196,8 +224,8 @@ class Call:
         self.params = params
         self.returned = Event()
         self.result = None
-        self.error = None
-        self.py_exception = None
+        self.error: ClientException | None = None
+        self.py_exception: BaseException | None = None
 
 
 class Job:
@@ -319,7 +347,7 @@ class Error(NamedTuple):
 
 
 class ValidationErrors(ClientException):
-    """Todo."""
+    """A raisable collection of `Error`s that indicates a validation error occurred on the server."""
 
     def __init__(self, errors: Iterable[tuple[str, str, int]]):
         """Initialize `ValidationErrors`.
@@ -352,13 +380,14 @@ class Payload(TypedDict):
     callback: Callable
     sync: bool
     event: Event
+    error: str | dict
 
 
 class Client:
     """The object used to interface with the TrueNAS API.
-    
-    Keeps track of the calls made, jobs submitted, and callbacks; maintains a connection using a `WSClient`.
-    
+
+    Keeps track of the calls made, jobs submitted, and callbacks. Maintains a websocket connection using a `WSClient`.
+
     """
     def __init__(self, uri: str | None=None, reserved_ports: bool=False, py_exceptions=False, log_py_exceptions=False,
                  call_timeout: float=undefined, verify_ssl: bool=True):
@@ -498,11 +527,11 @@ class Client:
         self._set_options_call = self.call("core.set_options", {"py_exceptions": self._py_exceptions}, background=True)
 
     def on_close(self, code: int, reason: str | None=None):
-        """todo.
+        """Close this `Client` in response to the `WebSocketApp` closing.
 
         Args:
-            code:
-            reason:
+            code: One of several closing frame status codes defined in `websocket._abnf`.
+            reason: A message to accompany the closing code and provide more information.
 
         """
         error = f'WebSocket connection closed with code={code!r}, reason={reason!r}'
@@ -580,9 +609,10 @@ class Client:
             timeout: Number of seconds to allow the call before timing out if `background=False`.
 
         Returns:
-            None: If the call fails due to timeout or some other `ClientException`, return None.
+            NoReturn: If the call fails due to timeout or some other `ClientException`.
             Call: If `background` is set, return an object representing the request-response pair.
-
+            Job: If `job='RETURN'`, return the `Job` object.
+            Any: Otherwise, return the result of the call.
 
         """
         if timeout is undefined:
