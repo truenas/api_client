@@ -914,16 +914,16 @@ def main():
             except Exception as e:
                 print("Failed to login: ", e)
                 sys.exit(0)
-            rv = c.call('datastore.sql', args.sql[0])
+            rv: list[dict] = c.call('datastore.sql', args.sql[0])
             if rv:
                 for i in rv:
                     data = []
-                    for f in i:
+                    for f in i.values():
                         if isinstance(f, bool):
                             data.append(str(int(f)))
                         else:
                             data.append(str(f))
-                    print('|'.join(data))
+                    print(' | '.join(data))
 
     elif args.name == 'subscribe':
         with Client(uri=args.uri) as c:
