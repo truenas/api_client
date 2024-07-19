@@ -479,8 +479,6 @@ class Client:
                                 if 'error' in params:
                                     event['error'] = params['error']['reason'] or params['error']
                                 event['event'].set()
-                    case 'ready':
-                        self._connected.set()
                     case _:
                         logger.error('Received unknown notification %r', message['method'])
             elif 'id' in message:
@@ -512,13 +510,16 @@ class Client:
 
     def _parse_error(self, error: dict, call: Call):
         code = JSONRPCError(error['code'])
-        if code == JSONRPCError.INVALID_PARAMS:
+        if self._py_exceptions and code in [JSONRPCError.INVALID_PARAMS, JSONRPCError.TRUENAS_CALL_ERROR]:
+            data = error['data']
+            call.error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
+            if data.get('py_exception'):
+                call.py_exception = pickle.loads(b64decode(data['py_exception']))
+        elif code == JSONRPCError.INVALID_PARAMS:
             call.error = ValidationErrors(error['data']['extra'])
         elif code == JSONRPCError.TRUENAS_CALL_ERROR:
             data = error['data']
             call.error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
-            if self._py_exceptions and 'py_exception' in data:
-                call.py_exception = pickle.loads(b64decode(data['py_exception']))
         else:
             call.error = ClientException(code.name)
 
@@ -599,7 +600,7 @@ class Client:
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
     def call(self, method: str, *params, background=False, callback: Callable | None=None,
-             job: Literal['RETURN'] | bool=False, timeout: float=undefined):
+             job: Literal['RETURN'] | bool=False, register_call=None, timeout: float=undefined):
         """The primary way to send call requests to the API.
 
         Send a JSON-RPC v2.0 request to the server.
@@ -621,6 +622,9 @@ class Client:
             Any: Otherwise, return the result of the call.
 
         """
+        if register_call is None:
+            register_call = not background
+
         if timeout is undefined:
             timeout = self._call_timeout
 
@@ -629,7 +633,7 @@ class Client:
             self._jobs_subscribe()
 
         c = Call(method, params)
-        if not background:
+        if register_call:
             self._register_call(c)
         try:
             self._send({
@@ -749,8 +753,8 @@ class Client:
 
 
         """
-        c = self.call('core.ping', background=True)
-        return c.wait(timeout)
+        c = self.call('core.ping', background=True, register_call=True)
+        return self.wait(c, timeout=timeout)
 
     def close(self):
         """close."""
