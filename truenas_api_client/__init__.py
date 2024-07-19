@@ -1,9 +1,14 @@
-"""Todo.
+"""Provides a simple way to call middleware API endpoints using a websocket connection.
 
-Attributes:
-    logger (logging.Logger): Object used to log errors and warnings.
-    LIBZFS (bool): `True` if `libzfs.Error` was successfully imported. Only `False` in CI/CD.
-    CALL_TIMEOUT (int): Default number of seconds to allow an API call until timing out.
+Example::
+
+    $ midclt ping && echo 'Connected' || echo 'Unable to ping'
+    Connected
+    $ midclt subscribe '*' > output.log 2>&1 &
+    [1] 31769
+    $ midclt call user.create '{"full_name": "John Doe", "username": "user", "password": "pass", "group_create": true}'
+    70
+    $ midclt sql 'SELECT bsdusr_full_name FROM account_bsdusers WHERE id = 1;'
 
 """
 import argparse
@@ -44,16 +49,17 @@ else:
 logger = logging.getLogger(__name__)
 
 CALL_TIMEOUT = int(os.environ.get('CALL_TIMEOUT', 60))
+"""Default number of seconds to allow an API call until timing out."""
 
 
 class ReserveFDException(Exception):
-    """Raised when a `WSClient` instance fails to bind to a reserved port."""
+    """A `WSClient` instance failed to bind to a reserved port."""
     pass
 
 
 class WSClient:
     """A supporter class for `Client` that manages the `WebSocket` connection to the server.
-    
+
     The object used by `Client` to send and receive data.    
 
     """
@@ -156,7 +162,7 @@ class WSClient:
     def _on_open(self, app):
         """Callback passed to the `WebSocketApp` to execute when `run_forever` is called.
 
-        Configure the `socket`.
+        Configure the `socket` and call `client.on_open()`.
 
         """
         # TCP keepalive settings don't apply to local unix sockets
@@ -523,7 +529,7 @@ class Client:
             Thread(target=event['callback'], args=args, kwargs=kwargs, daemon=True).start()
 
     def on_open(self):
-        """Make an API call to `core.set_options`."""
+        """Make an API call to `core.set_options` to configure how middlewared sends its responses."""
         self._set_options_call = self.call("core.set_options", {"py_exceptions": self._py_exceptions}, background=True)
 
     def on_close(self, code: int, reason: str | None=None):
