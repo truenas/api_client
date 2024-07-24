@@ -4,16 +4,18 @@ Example::
 
     $ midclt ping && echo 'Connected' || echo 'Unable to ping'
     Connected
-    $ midclt subscribe '*' > output.log 2>&1 &
-    [1] 31769
     $ midclt call user.create '{"full_name": "John Doe", "username": "user", "password": "pass", "group_create": true}'
     70
-    $ midclt sql 'SELECT bsdusr_full_name FROM account_bsdusers WHERE id = 1;'
+    $ midclt call user.get_instance 70
+    {"id": 70, "uid": 3000, "username": "user", "unixhash": ... }
+    $ midclt call user.query '[["full_name", "=", "John Doe"]]'
+    {"id": 70, "uid": 3000, "username": "user", "unixhash": ... }
 
 """
 import argparse
 from base64 import b64decode
 from collections import defaultdict
+from collections.abc import Callable, Iterable, Mapping
 import errno
 import logging
 import os
@@ -24,7 +26,7 @@ import socket
 import sys
 from threading import Event, Lock, Thread
 import time
-from typing import Any, Callable, Iterable, Literal, Mapping, NamedTuple, TypedDict
+from typing import Any, Literal, NamedTuple, NotRequired, TypedDict
 import urllib.parse
 import uuid
 
@@ -82,8 +84,12 @@ class WSClient:
         self.app: WebSocketApp = None
 
     def connect(self):
-        """Connect a `socket` and run a `WebSocketApp` in a new `Thread`."""
+        """Connect a `socket` and run a `WebSocketApp` in a new `Thread`.
 
+        Raises:
+            Exception: The `socket` failed to connect.
+
+        """
         unix_socket_prefix = "ws+unix://"
         if self.url.startswith(unix_socket_prefix):
             self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -133,7 +139,8 @@ class WSClient:
     def _bind_to_reserved_port(self):
         """Bind to a random port in the 600-1024 range. 
 
-        Raise an exception after five failed attempts with different ports.
+        Raises:
+            ReserveFDException: Five failed attempts with different ports.
 
         """
         # linux doesn't have a mechanism to allow the kernel to dynamically
@@ -266,8 +273,11 @@ class Job:
         """Wait for the job to finish and return its result.
 
         Returns:
-            NoReturn: If the job was not received or it did not succeed, raise a `ClientException`.
-            Any: Otherwise, return the job's result.
+            Any: The job's result.
+
+        Raises:
+            ValidationErrors: The job failed due to one or more validation errors.
+            ClientException: The job was not received or it did not succeed.
 
         """
         # Wait indefinitely for the job event with state SUCCESS/FAILED/ABORTED
@@ -311,7 +321,7 @@ class ErrnoMixin:
     """SSL certificate/host key could not be verified."""
 
     @classmethod
-    def _get_errname(cls, code: int) -> str:
+    def _get_errname(cls, code: int) -> str | None:
         if LIBZFS and 2000 <= code <= 2100:
             return 'EZFS_' + ZFSError(code).name
         for k, v in cls.__dict__.items():
@@ -319,13 +329,19 @@ class ErrnoMixin:
                 return k
 
 
-ClientExceptionTraceback = TypedDict('ClientExceptionTraceback', {'class': Any, 'formatted': Any, 'repr': Any})
+ClientExceptionTraceback = TypedDict('ClientExceptionTraceback', {
+    'class': str,
+    'frames': list[dict],
+    'formatted': str,
+    'repr': str
+})
+"""The traceback object type received in `message['error']['data']['trace']`."""
 
 
 class ClientException(ErrnoMixin, Exception):
     """Represents any exception that might arise from a `Client`."""
 
-    def __init__(self, error: str, errno: int=None, trace: ClientExceptionTraceback=None, extra=None):
+    def __init__(self, error: str, errno: int | None=None, trace: ClientExceptionTraceback | None=None, extra=None):
         """Initialize `ClientException`.
 
         Args:
@@ -383,10 +399,22 @@ class CallTimeout(ClientException):
 
 
 class Payload(TypedDict):
-    callback: Callable
+    """Contains information about an event subscription.
+
+    Attributes:
+        callback: Procedure to call when the event is triggered.
+        sync: If `True`, main client thread blocks until `callback` finishes each time it is invoked. Otherwise, run
+            `callback` in the background as a daemon `Thread`.
+        event: `Event` that is set when the subscription should end.
+        error:
+        id: Random UUID assigned by `core.subscribe`.
+
+    """
+    callback: Callable[[str, Any], None]
     sync: bool
     event: Event
-    error: str | dict
+    error: NotRequired[str | dict]
+    id: NotRequired[str]
 
 
 class Client:
@@ -407,6 +435,9 @@ class Client:
             call_timeout: Number of seconds to allow an API call before timing out. Can be overridden on a per-call
                 basis. Defaults to `CALL_TIMEOUT`.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
+
+        Raises:
+            ClientException: `WSClient` timed out or some other connection error occurred.
 
         """
         if uri is None:
@@ -430,7 +461,7 @@ class Client:
         self._set_options_call: Call | None = None
         self._closed = Event()
         self._connected = Event()
-        self._connection_error: str = None
+        self._connection_error: str | None = None
         self._ws = WSClient(
             uri,
             client=self,
@@ -449,8 +480,6 @@ class Client:
 
     def __exit__(self, typ: None, value, traceback):
         self.close()
-        if typ is not None:
-            raise
 
     def _send(self, data: dict):
         try:
@@ -460,7 +489,7 @@ class Client:
             # running tasks in the event loop (i.e. failover.call_remote failover.get_disks_local)
             raise ClientException('Unexpected closure of remote connection', errno.ECONNABORTED)
 
-    def _recv(self, message):
+    def _recv(self, message: dict[str, Any]):
         try:
             if 'method' in message:
                 params = message['params']
@@ -523,7 +552,7 @@ class Client:
         else:
             call.error = ClientException(code.name)
 
-    def _run_callback(self, event: dict[str, Callable[[], object]], args: Iterable, kwargs: Mapping):
+    def _run_callback(self, event: Payload, args: Iterable, kwargs: Mapping):
         if event['sync']:
             event['callback'](*args, **kwargs)
         else:
@@ -694,11 +723,11 @@ class Client:
 
     @staticmethod
     def event_payload() -> Payload:
-        """Return an empty payload.
-        
+        """Create an empty payload.
+
         Returns:
-            Payload: 
-        
+            Payload: Empty `Payload`.
+
         """
         return {
             'callback': None,
@@ -706,13 +735,13 @@ class Client:
             'event': Event(),
         }
 
-    def subscribe(self, name: str, callback: Callable, payload: Payload | None=None, sync: bool=False):
+    def subscribe(self, name: str, callback: Callable[[str, Any], None], payload: Payload | None=None, sync: bool=False):
         """Subscribe to an event by calling `core.subscribe`.
 
         Args:
-            name: The event to subscribe to.
-            callback:
-            payload:
+            name: The name of the event to subscribe to.
+            callback: A procedure to call when an event is triggered.
+            payload: Dictionary containing 
             sync:
 
         Returns:
@@ -728,11 +757,11 @@ class Client:
         payload['id'] = self.call('core.subscribe', name, timeout=10)
         return payload['id']
 
-    def unsubscribe(self, id_):
+    def unsubscribe(self, id_: str):
         """Unsubscribe.
         
         Args:
-            id_:
+            id_: `id` of a `Payload` that has been subscribed with.
 
         """
         self.call('core.unsubscribe', id_)
