@@ -123,10 +123,10 @@ class WSClient:
         Thread(daemon=True, target=self.app.run_forever).start()
 
     def send(self, data: bytes | str):
-        """Send a request to the server by calling `WebSocketApp.send()`.
+        """Send data to the server by calling `WebSocketApp.send()`.
 
         Args:
-            data: The JSON-RPC v2.0-formatted request to send.
+            data: The serialized JSON-RPC v2.0-formatted request to send.
 
         """
         self.app.send(data)
@@ -242,14 +242,14 @@ class Call:
 
 
 class Job:
-    """A `Job`."""
+    """A long-running background process on the server initiated by an API call."""
 
-    def __init__(self, client: 'Client', job_id: str, callback=None):
+    def __init__(self, client: 'Client', job_id: str, callback: Callable[[dict], None] | None=None):
         """Initialize `Job`.
 
         Args:
-            client:
-            job_id:
+            client: Reference to the client that created this `Job` and receives updates on its progress.
+            job_id: Index of this `Job` in the `client._jobs` dictionary.
             callback:
 
         """
@@ -331,7 +331,7 @@ class ErrnoMixin:
 
 ClientExceptionTraceback = TypedDict('ClientExceptionTraceback', {
     'class': str,
-    'frames': list[dict],
+    'frames': NotRequired[list[dict]],
     'formatted': str,
     'repr': str
 })
@@ -430,7 +430,8 @@ class Client:
         Args:
             uri: The address to connect to. Defaults to the middlewared socket.
             reserved_ports: `True` if the local socket should use a reserved port.
-            py_exceptions: Todo.
+            py_exceptions: `True` if the server should include exception objects in
+                `message['error']['data']['py_exception']`.
             log_py_exceptions: `True` if exceptions from API calls should be logged.
             call_timeout: Number of seconds to allow an API call before timing out. Can be overridden on a per-call
                 basis. Defaults to `CALL_TIMEOUT`.
@@ -481,7 +482,16 @@ class Client:
     def __exit__(self, typ: None, value, traceback):
         self.close()
 
-    def _send(self, data: dict):
+    def _send(self, data):
+        """Send data to the server using `WSClient`.
+
+        Args:
+            data: Object serializable with `ejson`.
+
+        Raises:
+            ClientException: Connection to the server closed prematurely.
+
+        """
         try:
             self._ws.send(json.dumps(data))
         except (AttributeError, WebSocketConnectionClosedException):
@@ -490,6 +500,121 @@ class Client:
             raise ClientException('Unexpected closure of remote connection', errno.ECONNABORTED)
 
     def _recv(self, message: dict[str, Any]):
+        """Process a deserialized JSON-RPC v2.0 message from the server.
+
+        The TrueNAS websocket `Client` receives data from the server in two standard forms: Notifications and
+        Responses. These are defined in the JSON-RPC v2.0 protocol at https://www.jsonrpc.org/specification.
+
+        A Notification is a Request from the server that does not elicit a Response. In the TrueNAS websocket client,
+        they are used to communicate subscription updates including when a subscription is terminated. These
+        subscription updates also include updates on jobs submitted by the client via `core.get_jobs`.
+
+        A Response is the server's answer to a Request sent by the client which may or may not come back immediately
+        depending on the Request sent. A Response contains either a `'result'` or an `'error'` JSON object (never
+        both).
+
+        Args:
+            message: Deserialized JSON-RPC v2.0 data from the server. Can either represent a Notification or a
+                Response.
+
+        A notification must follow the schema (TODO: throw these into README later):
+
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["method", "params"],
+            "properties": {
+                "jsonrpc": {"enum": ["2.0"]},
+                "method": {"enum": ["collection_update", "notify_unsubscribed"]},
+                "params": {
+                    "type": "object",
+                    "required": ["collection"],
+                    "properties": {
+                        "collection": {"type": "string"},
+                        "msg": {"type": "string"},
+                        "error": {
+                            "type": "object",
+                            "required": ["reason"],
+                            "properties": {
+                                "reason": {"type": ["null", "string"]}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        A response must follow the schema:
+
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["id"],
+            "properties": {
+                "jsonrpc": {"enum": ["2.0"]},
+                "result": {"type": ["string", "number", "boolean", "null", "object", "array"]},
+                "error": {
+                    "type": "object",
+                    "required": ["code"],
+                    "properties": {
+                        "code": {"type": "number"},
+                        "message": {"type": "string"},
+                        "data": {
+                            "type": "object",
+                            "required": ["extra"],
+                            "properties": {
+                                "reason": {"type": "string"},
+                                "error": {"type": "number"},
+                                "trace": {
+                                    "type": "object",
+                                    "required": [],
+                                    "properties": {
+                                        "class": {"type": "string"},
+                                        "frames": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "filename": {"type": "string"},
+                                                    "lineno": {"type": "number"},
+                                                    "method": {"type": "string"},
+                                                    "line": {"type": "string"},
+                                                    "argspec": {"type": "array"},
+                                                    "varargspec": {"type": "string"},
+                                                    "keywordspec": {"type": "string"},
+                                                    "locals": {"type": "object"}
+                                                }
+                                            }
+                                        },
+                                        "formatted": {"type": "string"},
+                                        "repr": {"type": "string"},
+                                    }
+                                },
+                                "extra": {
+                                    "oneOf": [
+                                        {
+                                            "type": "array",
+                                            "items": [
+                                                {"type": "string"},
+                                                {"type": "string"},
+                                                {"type": "number"}
+                                            ],
+                                            "minItems": 3,
+                                            "maxItems": 3
+                                        },
+                                        {"type": "null"}
+                                    ]
+                                },
+                                "py_exception": {"type": "string"}
+                            }
+                        }
+                    }
+                },
+                "id": {"type": "string"}
+            }
+        }
+        
+        """
         try:
             if 'method' in message:
                 params = message['params']
@@ -598,9 +723,11 @@ class Client:
         self._closed.set()
 
     def _register_call(self, call: Call):
+        """Save a `Call` and index it by its id."""
         self._calls[call.id] = call
 
-    def _unregister_call(self, call):
+    def _unregister_call(self, call: Call):
+        """Remove a `Call` after it has returned."""
         self._calls.pop(call.id, None)
 
     def _jobs_callback(self, mtype: str, **message):
@@ -628,11 +755,11 @@ class Client:
         self._jobs_watching = True
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
-    def call(self, method: str, *params, background=False, callback: Callable | None=None,
+    def call(self, method: str, *params, background=False, callback: Callable[[dict], None] | None=None,
              job: Literal['RETURN'] | bool=False, register_call=None, timeout: float=undefined):
         """The primary way to send call requests to the API.
 
-        Send a JSON-RPC v2.0 request to the server.
+        Send a JSON-RPC v2.0 Request to the server.
 
         Args:
             method: An API endpoint to call.
@@ -645,10 +772,13 @@ class Client:
             timeout: Number of seconds to allow the call before timing out if `background=False`.
 
         Returns:
-            NoReturn: If the call fails due to timeout or some other `ClientException`.
             Call: If `background` is set, return an object representing the request-response pair.
             Job: If `job='RETURN'`, return the `Job` object.
             Any: Otherwise, return the result of the call.
+
+        Raises:
+            ClientException: Connection to the server closed prematurely or the call ended in error.
+            CallTimeout: The call took longer than `timeout` seconds to return.
 
         """
         if register_call is None:
@@ -680,7 +810,7 @@ class Client:
             if not background:
                 self._unregister_call(c)
 
-    def wait(self, c: Call, *, callback: Callable | None=None, job: Literal['RETURN'] | bool=False,
+    def wait(self, c: Call, *, callback: Callable[[dict], None] | None=None, job: Literal['RETURN'] | bool=False,
              timeout: float=undefined):
         """Wait for an API call to return and return its result.
         
@@ -691,9 +821,13 @@ class Client:
             timeout: Override the default number of seconds until a timeout exception occurs.
 
         Returns:
-            NoReturn: If the call times out or returns an error, raise the error.
             Job: If `job='RETURN'`, return the `Job` object.
             Any: If `job=True`, return the job's result. Otherwise, return the call's result.
+
+        Raises:
+            CallTimeout: The call took longer than `timeout` seconds to return.
+            ClientException: The call ended in error and `py_exception` was not enabled for `c`.
+            BaseException: The call ended in error and `py_exception` was enabled for `c`.
 
         """
         if timeout is undefined:
@@ -825,6 +959,10 @@ def main():
             API key
         -t, --timeout
             timeout
+
+    Raises:
+        ValueError: Login failed (`midclt call` and `midclt sql`) or a subscription terminated with an error
+            (`midclt subscribe`).
 
     """
 
