@@ -229,7 +229,7 @@ class Call:
 
         Args:
             method: The API endpoint being called.
-            params: Parameters passed to the method.
+            params: Arguments passed to the method.
 
         """
         self.id = str(uuid.uuid4())
@@ -250,7 +250,7 @@ class Job:
         Args:
             client: Reference to the client that created this `Job` and receives updates on its progress.
             job_id: Index of this `Job` in the `client._jobs` dictionary.
-            callback:
+            callback: A function to be called every time 
 
         """
         self.client = client
@@ -269,7 +269,7 @@ class Job:
     def __repr__(self):
         return f'<Job[{self.job_id}]>'
 
-    def result(self):
+    def result(self) -> Any:
         """Wait for the job to finish and return its result.
 
         Returns:
@@ -301,7 +301,7 @@ class Job:
 
 
 class ErrnoMixin:
-    """Provides `ClientException` with a list of custom error codes and a way to get the name of an error code."""
+    """Provides custom error codes and a function to get the name of an error code."""
 
     ENOMETHOD = 201
     """Service not found or method not found in service."""
@@ -322,6 +322,16 @@ class ErrnoMixin:
 
     @classmethod
     def _get_errname(cls, code: int) -> str | None:
+        """Get the name of an error given the error code.
+
+        Args:
+            code: An error code for either a ZFSError or a custom error defined in this class.
+
+        Returns:
+            str: The name of the associated error.
+            None: `code` does not match any known errors.
+
+        """
         if LIBZFS and 2000 <= code <= 2100:
             return 'EZFS_' + ZFSError(code).name
         for k, v in cls.__dict__.items():
@@ -395,6 +405,7 @@ class ValidationErrors(ClientException):
 class CallTimeout(ClientException):
     """A special `ClientException` raised when a `Call` times out before it can return a result."""
     def __init__(self):
+        """Initiate a `ClientException` with message `"Call timeout"`."""
         super().__init__("Call timeout", errno.ETIMEDOUT)
 
 
@@ -410,7 +421,7 @@ class Payload(TypedDict):
         id: Random UUID assigned by `core.subscribe`.
 
     """
-    callback: Callable[[str, Any], None]
+    callback: Callable[[str, Any], None] | None
     sync: bool
     event: Event
     error: NotRequired[str | dict]
@@ -663,6 +674,13 @@ class Client:
             logger.error('Unhandled exception in Client._recv', exc_info=True)
 
     def _parse_error(self, error: dict, call: Call):
+        """Convert an error received from the server into a `ClientException` and store it.
+
+        Args:
+            error: As defined in the Response schema.
+            call: The associated `Call` object with which to store the `ClientException`.
+
+        """
         code = JSONRPCError(error['code'])
         if self._py_exceptions and code in [JSONRPCError.INVALID_PARAMS, JSONRPCError.TRUENAS_CALL_ERROR]:
             data = error['data']
@@ -678,6 +696,16 @@ class Client:
             call.error = ClientException(code.name)
 
     def _run_callback(self, event: Payload, args: Iterable, kwargs: Mapping):
+        """Call the passed `Payload`'s callback function.
+
+        Wait until the callback returns if `event['sync']` is set. Otherwise, run in a separate daemon `Thread`.
+
+        Args:
+            event: The `Payload` whose callback to run.
+            args: Positional arguments to the callback.
+            kwargs: Keyword arguments to the callback.
+
+        """
         if event['sync']:
             event['callback'](*args, **kwargs)
         else:
@@ -756,7 +784,7 @@ class Client:
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
     def call(self, method: str, *params, background=False, callback: Callable[[dict], None] | None=None,
-             job: Literal['RETURN'] | bool=False, register_call=None, timeout: float=undefined):
+             job: Literal['RETURN'] | bool=False, register_call=None, timeout: float=undefined) -> Call | Job | Any:
         """The primary way to send call requests to the API.
 
         Send a JSON-RPC v2.0 Request to the server.
@@ -811,7 +839,7 @@ class Client:
                 self._unregister_call(c)
 
     def wait(self, c: Call, *, callback: Callable[[dict], None] | None=None, job: Literal['RETURN'] | bool=False,
-             timeout: float=undefined):
+             timeout: float=undefined) -> Job | Any:
         """Wait for an API call to return and return its result.
         
         Args:
@@ -869,17 +897,19 @@ class Client:
             'event': Event(),
         }
 
-    def subscribe(self, name: str, callback: Callable[[str, Any], None], payload: Payload | None=None, sync: bool=False):
+    def subscribe(self, name: str, callback: Callable[[str, Any], None], payload: Payload | None=None,
+                  sync: bool=False) -> str:
         """Subscribe to an event by calling `core.subscribe`.
 
         Args:
             name: The name of the event to subscribe to.
             callback: A procedure to call when an event is triggered.
-            payload: Dictionary containing 
-            sync:
+            payload: Dictionary containing subscription information.
+            sync: If `True`, main client thread blocks until `callback` finishes each time it is invoked. Otherwise,
+                run `callback` in the background as a daemon `Thread`.
 
         Returns:
-
+            str: The `Payload` id assigned by `core.subscribe`.
 
         """
         payload = payload or self.event_payload()
@@ -892,10 +922,10 @@ class Client:
         return payload['id']
 
     def unsubscribe(self, id_: str):
-        """Unsubscribe.
-        
+        """Call `core.unsubscribe` and remove all associated `Payload`s
+
         Args:
-            id_: `id` of a `Payload` that has been subscribed with.
+            id_: `id` of the `Payload` to remove.
 
         """
         self.call('core.unsubscribe', id_)
@@ -906,21 +936,22 @@ class Client:
             else:
                 self._event_callbacks.pop(k)
 
-    def ping(self, timeout=10):
-        """Ping!
-        
-        Args:
-            timeout:
-        
-        Returns:
+    def ping(self, timeout: float=10) -> Literal['pong']:
+        """Call `core.ping` to verify connection to the server.
 
+        Args:
+            timeout: Number of seconds to allow before raising `CallTimeout`.
+
+        Raises:
+            ClientException: Connection to the server closed prematurely or the call ended in error.
+            CallTimeout: The call took longer than `timeout` seconds to return.
 
         """
         c = self.call('core.ping', background=True, register_call=True)
         return self.wait(c, timeout=timeout)
 
     def close(self):
-        """close."""
+        """Allow one second for the `WSClient` to close."""
         self._ws.close()
         # Wait for websocketclient thread to close
         self._closed.wait(1)
@@ -996,7 +1027,8 @@ def main():
     iparser.add_argument('-t', '--timeout', type=int)
     args = parser.parse_args()
 
-    def from_json(args):
+    def from_json(args: Iterable):
+        """Deserialize each item in `args` if possible using `ejson`."""
         for i in args:
             try:
                 yield json.loads(i)
@@ -1024,7 +1056,8 @@ def main():
                         if args.job_print == 'progressbar':
                             # display the job progress and status message while we wait
 
-                            def callback(progress_bar, job):
+                            def callback(progress_bar: ProgressBar, job: dict):
+                                """Update `progress_bar` with information in `job['progress']`."""
                                 try:
                                     progress_bar.update(
                                         job['progress']['percent'], job['progress']['description']
@@ -1042,7 +1075,8 @@ def main():
                         else:
                             lastdesc = ''
 
-                            def callback(job):
+                            def callback(job: dict):
+                                """Print `job`'s description to `stderr` if it has changed."""
                                 nonlocal lastdesc
                                 desc = job['progress']['description']
                                 if desc is not None and desc != lastdesc:
@@ -1103,7 +1137,8 @@ def main():
             event = subscribe_payload['event']
             number = 0
 
-            def cb(mtype, **message):
+            def cb(mtype: str, **message):
+                """Print the event message and unsubscribe if the maximum number of events is reached."""
                 nonlocal number
                 print(json.dumps(message))
                 number += 1
