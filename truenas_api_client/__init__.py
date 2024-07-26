@@ -678,12 +678,10 @@ def main():
         except (FileNotFoundError, ConnectionRefusedError):
             print('Failed to run middleware call. Daemon not running?', file=sys.stderr)
             sys.exit(1)
-
     elif args.name == 'ping':
         with Client(uri=args.uri) as c:
             if not c.ping():
                 sys.exit(1)
-
     elif args.name == 'subscribe':
         with Client(uri=args.uri) as c:
 
