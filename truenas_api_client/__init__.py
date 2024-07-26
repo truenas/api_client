@@ -596,8 +596,6 @@ def main():
     iparser.add_argument('method', nargs='+')
     subparsers.add_parser('ping', help='Ping')
     subparsers.add_parser('waitready', help='Wait server')
-    iparser = subparsers.add_parser('sql', help='Run SQL command')
-    iparser.add_argument('sql', nargs='+')
     iparser = subparsers.add_parser('subscribe', help='Subscribe to event')
     iparser.add_argument('event')
     iparser.add_argument('-n', '--number', type=int, help='Number of events to wait before exit')
@@ -684,26 +682,6 @@ def main():
         with Client(uri=args.uri) as c:
             if not c.ping():
                 sys.exit(1)
-    elif args.name == 'sql':
-        with Client(uri=args.uri) as c:
-            try:
-                if args.username and args.password:
-                    if not c.call('auth.login', args.username, args.password):
-                        raise ValueError('Invalid username or password')
-            except Exception as e:
-                print("Failed to login: ", e)
-                sys.exit(0)
-            rv = c.call('datastore.sql', args.sql[0])
-            if rv:
-                for i in rv:
-                    data = []
-                    for f in i:
-                        if isinstance(f, bool):
-                            data.append(str(int(f)))
-                        else:
-                            data.append(str(f))
-                    print('|'.join(data))
-
     elif args.name == 'subscribe':
         with Client(uri=args.uri) as c:
 
