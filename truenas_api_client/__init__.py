@@ -334,11 +334,11 @@ class Client:
                     call.trace = message['error'].get('trace')
                     call.type = message['error'].get('type')
                     call.extra = message['error'].get('extra')
-                    call.py_exception = message['error'].get('py_exception')
-                    if self._py_exceptions and call.py_exception:
-                        call.py_exception = pickle.loads(b64decode(
-                            call.py_exception
-                        ))
+                    if self._py_exceptions and (py_exception := message['error'].get('py_exception')):
+                        try:
+                            call.py_exception = pickle.loads(b64decode(py_exception))
+                        except Exception as e:
+                            logger.warning("Error unpickling call exception: %r", e)
                 call.returned.set()
                 self._unregister_call(call)
             else:
