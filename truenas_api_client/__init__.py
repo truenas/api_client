@@ -1,5 +1,7 @@
 """Provides a simple way to call middleware API endpoints using a websocket connection.
 
+The full websocket API documentation can be found at https://www.truenas.com/docs/api/core_websocket_api.html.
+
 Example::
 
     $ midclt ping && echo 'Connected' || echo 'Unable to ping'
@@ -10,6 +12,20 @@ Example::
     {"id": 70, "uid": 3000, "username": "user", "unixhash": ... }
     $ midclt call user.query '[["full_name", "=", "John Doe"]]'
     {"id": 70, "uid": 3000, "username": "user", "unixhash": ... }
+
+Example::
+
+    with Client() as c:  # Local IPC
+        print(c.ping())  # pong
+        user = {"full_name": "John Doe", "username": "user", "password": "pass", "group_create": true}
+        id = c.call("user.create", user)
+        user = c.call("user.get_instance", id)
+        print(user["full_name"])  # John Doe
+
+Example::
+
+    c = Client()
+    c.close()
 
 """
 import argparse
@@ -90,12 +106,15 @@ class WSClient:
             Exception: The `socket` failed to connect.
 
         """
+        print("Here")
         unix_socket_prefix = "ws+unix://"
         if self.url.startswith(unix_socket_prefix):
+            print("Here1")
             self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.socket.connect(self.url.removeprefix(unix_socket_prefix))
             app_url = "ws://localhost/api/current"  # Adviced by official docs to use dummy hostname
         elif self.reserved_ports:
+            print("Here2")
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.settimeout(10)
             self._bind_to_reserved_port()
@@ -107,6 +126,7 @@ class WSClient:
                 raise
             app_url = "ws://localhost/api/current"  # Adviced by official docs to use dummy hostname
         else:
+            print("Here3")
             sockopt = sock_opt(None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE})
             sockopt.timeout = 10
             self.socket = connect(self.url, sockopt, proxy_info(), None)[0]  # websocket._http.connect()
@@ -228,7 +248,7 @@ class Call:
         """Initialize a `Call` object with an automatically-assigned id.
 
         Args:
-            method: The API endpoint being called.
+            method: The API method being called.
             params: Arguments passed to the method.
 
         """
@@ -249,7 +269,7 @@ class Job:
 
         Args:
             client: Reference to the client that created this `Job` and receives updates on its progress.
-            job_id: Index of this `Job` in the `client._jobs` dictionary.
+            job_id: The job id returned by the server. Index of this `Job` in the `client._jobs` dictionary.
             callback: A function to be called every time 
 
         """
@@ -260,7 +280,7 @@ class Job:
         # Otherwise, we create a new stub for the job with the Event for when
         # the job event arrives to use existing event.
         with client._jobs_lock:
-            job = client._jobs[job_id]
+            job = client._jobs[job_id]  # Creates an entry if one doesn't exist
             self.event: Event = job.get('__ready')
             if self.event is None:
                 self.event = job['__ready'] = Event()
@@ -542,7 +562,23 @@ class Client:
                     "required": ["collection"],
                     "properties": {
                         "collection": {"type": "string"},
-                        "msg": {"type": "string"},
+                        "msg": {"enum": ["changed", "added"]},
+                        "fields": {
+                            "type": "object",
+                            "required": ["id", "progress"],
+                            "properties": {
+                                "id": {"type": "string"},
+                                "state": {"enum": ["SUCCESS", "FAILED", "ABORTED"]},
+                                "progress": {
+                                    "type": "object",
+                                    "required": ["percent", "description"],
+                                    "properties": {
+                                        "percent": {"type": ["number", "null"]},
+                                        "description": {"type": ["string", "null"]}
+                                    }
+                                }
+                            }
+                        },
                         "error": {
                             "type": "object",
                             "required": ["reason"],
@@ -698,7 +734,7 @@ class Client:
     def _run_callback(self, event: Payload, args: Iterable, kwargs: Mapping):
         """Call the passed `Payload`'s callback function.
 
-        Wait until the callback returns if `event['sync']` is set. Otherwise, run in a separate daemon `Thread`.
+        Block until the callback returns if `event['sync']` is set. Otherwise, run in a separate daemon `Thread`.
 
         Args:
             event: The `Payload` whose callback to run.
@@ -717,6 +753,8 @@ class Client:
 
     def on_close(self, code: int, reason: str | None=None):
         """Close this `Client` in response to the `WebSocketApp` closing.
+
+        End all unanswered calls and unreturned jobs with an error.
 
         Args:
             code: One of several closing frame status codes defined in `websocket._abnf`.
@@ -759,7 +797,19 @@ class Client:
         self._calls.pop(call.id, None)
 
     def _jobs_callback(self, mtype: str, **message):
-        """Method to process the received job events."""
+        """Process a received job event.
+
+        Update the saved job info, execute its saved callback in the background, and set its "__ready" flag if its
+        "state" is received.
+
+        Args:
+            mtype: Indicates if the job state has changed. (?)
+            **message: The "params" dictionary of the JSON-RPC Notification.
+
+        Keyword Args:
+            fields (dict): Contains job id and state. 
+
+        """
         fields = message.get('fields')
         job_id = fields['id']
         with self._jobs_lock:
