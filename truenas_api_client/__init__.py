@@ -24,7 +24,7 @@ Example::
 
 Example::
 
-    c = Client()
+    c = Client("ws://example.com:80/api/current")  # Remote websocket connection
     c.close()
 
 """
@@ -85,7 +85,7 @@ class WSClient:
         """Initialize a `WSClient`.
 
         Args:
-            url: The address to connect to. May be a Unix socket.
+            url: The websocket to connect to. Can be a local Unix domain socket.
             client: Reference to the `Client` instance that uses this object.
             reserved_ports: `True` if the `socket` should bind to a reserved port, i.e. 600-1024.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
@@ -100,21 +100,18 @@ class WSClient:
         self.app: WebSocketApp = None
 
     def connect(self):
-        """Connect a `socket` and run a `WebSocketApp` in a new `Thread`.
+        """Connect a `socket` and start a `WebSocketApp` in a daemon `Thread`.
 
         Raises:
             Exception: The `socket` failed to connect.
 
         """
-        print("Here")
         unix_socket_prefix = "ws+unix://"
         if self.url.startswith(unix_socket_prefix):
-            print("Here1")
             self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.socket.connect(self.url.removeprefix(unix_socket_prefix))
             app_url = "ws://localhost/api/current"  # Adviced by official docs to use dummy hostname
         elif self.reserved_ports:
-            print("Here2")
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.settimeout(10)
             self._bind_to_reserved_port()
@@ -126,7 +123,6 @@ class WSClient:
                 raise
             app_url = "ws://localhost/api/current"  # Adviced by official docs to use dummy hostname
         else:
-            print("Here3")
             sockopt = sock_opt(None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE})
             sockopt.timeout = 10
             self.socket = connect(self.url, sockopt, proxy_info(), None)[0]  # websocket._http.connect()
@@ -219,7 +215,7 @@ class WSClient:
     def _on_message(self, app, data):
         """Callback passed to the `WebSocketApp` to execute when data is received.
 
-        Pass the data to the `Client`.
+        Pass the received data to the `Client`.
 
         """
         self.client._recv(json.loads(data))
@@ -256,21 +252,38 @@ class Call:
         self.method = method
         self.params = params
         self.returned = Event()
-        self.result = None
+        self.result: Any = None
         self.error: ClientException | None = None
         self.py_exception: BaseException | None = None
 
 
-class Job:
-    """A long-running background process on the server initiated by an API call."""
+_Progress = TypedDict('_Progress', {'percent': float | None, 'description': str | None})
 
-    def __init__(self, client: 'Client', job_id: str, callback: Callable[[dict], None] | None=None):
+
+class _JobDict(TypedDict, total=False):
+    __ready: Event
+    __callback: Callable[['_JobDict'], None] | None
+    state: Literal['SUCCESS', 'FAILED', 'ABORTED'] | None
+    progress: _Progress
+    result: Any
+    exc_info: dict[str, str | Iterable[tuple[str, str, int]]] | None
+    error: str
+    exception: str
+
+
+class Job:
+    """A long-running background process on the server initiated by an API call.
+
+    Every `Job` is responsible for a corresponding `JobDict` in the client's list of jobs.
+
+    """
+    def __init__(self, client: 'Client', job_id: str, callback: Callable[[_JobDict], None] | None=None):
         """Initialize `Job`.
 
         Args:
             client: Reference to the client that created this `Job` and receives updates on its progress.
             job_id: The job id returned by the server. Index of this `Job` in the `client._jobs` dictionary.
-            callback: A function to be called every time 
+            callback: A function to be called every time a job event is received.
 
         """
         self.client = client
@@ -281,7 +294,7 @@ class Job:
         # the job event arrives to use existing event.
         with client._jobs_lock:
             job = client._jobs[job_id]  # Creates an entry if one doesn't exist
-            self.event: Event = job.get('__ready')
+            self.event = job.get('__ready')
             if self.event is None:
                 self.event = job['__ready'] = Event()
             job['__callback'] = callback
@@ -297,7 +310,7 @@ class Job:
 
         Raises:
             ValidationErrors: The job failed due to one or more validation errors.
-            ClientException: The job was not received or it did not succeed.
+            ClientException: No job event was received or it did not succeed.
 
         """
         # Wait indefinitely for the job event with state SUCCESS/FAILED/ABORTED
@@ -342,7 +355,7 @@ class ErrnoMixin:
 
     @classmethod
     def _get_errname(cls, code: int) -> str | None:
-        """Get the name of an error given the error code.
+        """Get the name of an error given its error code.
 
         Args:
             code: An error code for either a ZFSError or a custom error defined in this class.
@@ -359,7 +372,7 @@ class ErrnoMixin:
                 return k
 
 
-ClientExceptionTraceback = TypedDict('ClientExceptionTraceback', {
+_ClientExceptionTraceback = TypedDict('_ClientExceptionTraceback', {
     'class': str,
     'frames': NotRequired[list[dict]],
     'formatted': str,
@@ -371,7 +384,7 @@ ClientExceptionTraceback = TypedDict('ClientExceptionTraceback', {
 class ClientException(ErrnoMixin, Exception):
     """Represents any exception that might arise from a `Client`."""
 
-    def __init__(self, error: str, errno: int | None=None, trace: ClientExceptionTraceback | None=None, extra=None):
+    def __init__(self, error: str, errno: int | None=None, trace: _ClientExceptionTraceback | None=None, extra=None):
         """Initialize `ClientException`.
 
         Args:
@@ -392,7 +405,6 @@ class ClientException(ErrnoMixin, Exception):
 
 class Error(NamedTuple):
     """The data type contained in `ValidationErrors`."""
-
     attribute: str
     errmsg: str
     errcode: int
@@ -429,7 +441,7 @@ class CallTimeout(ClientException):
         super().__init__("Call timeout", errno.ETIMEDOUT)
 
 
-class Payload(TypedDict):
+class _Payload(TypedDict):
     """Contains information about an event subscription.
 
     Attributes:
@@ -483,13 +495,13 @@ class Client:
             call_timeout = CALL_TIMEOUT
 
         self._calls: dict[str, Call] = {}
-        self._jobs: defaultdict[str, dict[str, Any]] = defaultdict(dict)
+        self._jobs: defaultdict[str, _JobDict] = defaultdict(_JobDict)
         self._jobs_lock = Lock()
         self._jobs_watching = False
         self._py_exceptions = py_exceptions
         self._log_py_exceptions = log_py_exceptions
         self._call_timeout = call_timeout
-        self._event_callbacks: dict[str, list[Payload]] = defaultdict(list)
+        self._event_callbacks: dict[str, list[_Payload]] = defaultdict(list)
         self._set_options_call: Call | None = None
         self._closed = Event()
         self._connected = Event()
@@ -731,13 +743,13 @@ class Client:
         else:
             call.error = ClientException(code.name)
 
-    def _run_callback(self, event: Payload, args: Iterable, kwargs: Mapping):
-        """Call the passed `Payload`'s callback function.
+    def _run_callback(self, event: _Payload, args: Iterable, kwargs: Mapping):
+        """Call the passed `_Payload`'s callback function.
 
         Block until the callback returns if `event['sync']` is set. Otherwise, run in a separate daemon `Thread`.
 
         Args:
-            event: The `Payload` whose callback to run.
+            event: The `_Payload` whose callback to run.
             args: Positional arguments to the callback.
             kwargs: Keyword arguments to the callback.
 
@@ -807,7 +819,7 @@ class Client:
             **message: The "params" dictionary of the JSON-RPC Notification.
 
         Keyword Args:
-            fields (dict): Contains job id and state. 
+            fields (dict): Contains job id. 
 
         """
         fields = message.get('fields')
@@ -833,7 +845,7 @@ class Client:
         self._jobs_watching = True
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
-    def call(self, method: str, *params, background=False, callback: Callable[[dict], None] | None=None,
+    def call(self, method: str, *params, background=False, callback: Callable[[_JobDict], None] | None=None,
              job: Literal['RETURN'] | bool=False, register_call=None, timeout: float=undefined) -> Call | Job | Any:
         """The primary way to send call requests to the API.
 
@@ -888,7 +900,7 @@ class Client:
             if not background:
                 self._unregister_call(c)
 
-    def wait(self, c: Call, *, callback: Callable[[dict], None] | None=None, job: Literal['RETURN'] | bool=False,
+    def wait(self, c: Call, *, callback: Callable[[_JobDict], None] | None=None, job: Literal['RETURN'] | bool=False,
              timeout: float=undefined) -> Job | Any:
         """Wait for an API call to return and return its result.
         
@@ -934,11 +946,11 @@ class Client:
             self._unregister_call(c)
 
     @staticmethod
-    def event_payload() -> Payload:
+    def event_payload() -> _Payload:
         """Create an empty payload.
 
         Returns:
-            Payload: Empty `Payload`.
+            _Payload: Empty `_Payload`.
 
         """
         return {
@@ -947,7 +959,7 @@ class Client:
             'event': Event(),
         }
 
-    def subscribe(self, name: str, callback: Callable[[str, Any], None], payload: Payload | None=None,
+    def subscribe(self, name: str, callback: Callable[[str, Any], None], payload: _Payload | None=None,
                   sync: bool=False) -> str:
         """Subscribe to an event by calling `core.subscribe`.
 
@@ -959,7 +971,7 @@ class Client:
                 run `callback` in the background as a daemon `Thread`.
 
         Returns:
-            str: The `Payload` id assigned by `core.subscribe`.
+            str: The `_Payload` id assigned by `core.subscribe`.
 
         """
         payload = payload or self.event_payload()
@@ -972,10 +984,10 @@ class Client:
         return payload['id']
 
     def unsubscribe(self, id_: str):
-        """Call `core.unsubscribe` and remove all associated `Payload`s
+        """Call `core.unsubscribe` and remove all associated `_Payload`s
 
         Args:
-            id_: `id` of the `Payload` to remove.
+            id_: `id` of the `_Payload` to remove.
 
         """
         self.call('core.unsubscribe', id_)
@@ -1104,7 +1116,7 @@ def main():
                         if args.job_print == 'progressbar':
                             # display the job progress and status message while we wait
 
-                            def callback(progress_bar: ProgressBar, job: dict):
+                            def callback(progress_bar: ProgressBar, job: _JobDict):
                                 """Update `progress_bar` with information in `job['progress']`."""
                                 try:
                                     progress_bar.update(
@@ -1123,7 +1135,7 @@ def main():
                         else:
                             lastdesc = ''
 
-                            def callback(job: dict):
+                            def callback(job: _JobDict):
                                 """Print `job`'s description to `stderr` if it has changed."""
                                 nonlocal lastdesc
                                 desc = job['progress']['description']
