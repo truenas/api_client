@@ -18,7 +18,6 @@ Example::
 import calendar
 from datetime import date, datetime, time, timedelta, timezone
 import json
-from typing_extensions import override
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -38,7 +37,6 @@ class JSONEncoder(json.JSONEncoder):
     the JSON array is undefined.
 
     """
-    @override
     def default(self, obj: date | datetime | time | set) -> dict[str, str | int | list]:
         if type(obj) is date:
             return {'$type': 'date', '$value': obj.isoformat()}
@@ -51,7 +49,7 @@ class JSONEncoder(json.JSONEncoder):
             return {'$time': str(obj)}
         elif isinstance(obj, set):
             return {'$set': list(obj)}
-        return super(JSONEncoder, self).default(obj)  # Raises a `TypeError`
+        return super(JSONEncoder, self).default(obj)
 
 
 def object_hook(obj: dict):

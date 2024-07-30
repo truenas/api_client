@@ -10,21 +10,36 @@
 
 ## About
 
-The TrueNAS websocket client provides an interface to communicate with [middleware](https://github.com/truenas/middleware) by making calls through the [websocket API](https://www.truenas.com/docs/api/scale_websocket_api.html). The client can connect to a local TrueNAS instance by default or to a specified remote socket.
+The TrueNAS websocket client provides both the command line tool `midclt` and the means for creating a Python script to easily communicate with [middleware](https://github.com/truenas/middleware) by making calls through the [websocket API](https://www.truenas.com/docs/api/scale_websocket_api.html). The client can connect to a local TrueNAS instance by default or to a specified remote socket. This offers an alternative to going through the [web UI](https://github.com/truenas/webui) or connecting via ssh. It also opens up the possibility of automating common tasks.
+
+Communication facilitated by the API between the client and middleware uses the [JSON-RPC 2.0](https://www.jsonrpc.org/specification) protocol.
 
 ## Getting Started
 
-TrueNAS comes preinstalled with this client, but it is also possible to use the TrueNAS websocket client from a non-TrueNAS host. In this case, you will need to manually install the dependency [websocket-client](https://pypi.org/project/websocket-client/). To be safe, you can check what version of websocket-client TrueNAS uses in [python-truenas-requirements](https://github.com/truenas/python-truenas-requirements/blob/master/requirements.txt).
+TrueNAS comes preinstalled with this client, but it is also possible to use the TrueNAS websocket client from a non-TrueNAS host.
+
+Ensure that Git is installed and run `pip install git+https://github.com/truenas/api_client.git` to automatically install dependencies.
 
 ## Usage
+
+### `midclt`
+
+The `midclt` command (not to be confused with the [TrueNAS CLI](https://github.com/truenas/midcli)) provides a direct and interactive way to make API calls through the client. To view its syntax, enter `midclt -h`. The `-h` option can also be used with any of `midclt`'s subcommands.
+
+The primary subcommand of `midclt` is `midclt call`. 
+
+### Instantiating a `Client`
+
+
 
 ## Development
 
 ## Helpful Links
 
+<img align="right" src="https://www.truenas.com/docs/images/TrueNAS_Open_Enterprise_Storage.png" />
+
 - [Websocket API docs](https://www.truenas.com/docs/api/scale_websocket_api.html)
 - [Middleware repo](https://github.com/truenas/middleware)
 - [Official TrueNAS Documentation Hub](https://www.truenas.com/docs/)
 - [Get started building TrueNAS Scale](https://github.com/truenas/scale-build)
-- [More information about websocket-client](https://github.com/websocket-client/websocket-client)
 - [Forums](https://www.truenas.com/community/)
