@@ -12,27 +12,78 @@
 
 The TrueNAS websocket client provides both the command line tool `midclt` and the means for creating a Python script to easily communicate with [middleware](https://github.com/truenas/middleware) by making calls through the [websocket API](https://www.truenas.com/docs/api/scale_websocket_api.html). The client can connect to a local TrueNAS instance by default or to a specified remote socket. This offers an alternative to going through the [web UI](https://github.com/truenas/webui) or connecting via ssh. It also opens up the possibility of automating common tasks.
 
-Communication facilitated by the API between the client and middleware uses the [JSON-RPC 2.0](https://www.jsonrpc.org/specification) protocol.
+Behind the scenes, communication facilitated by the API between the client and middleware uses the [JSON-RPC 2.0](https://www.jsonrpc.org/specification) protocol.
 
 ## Getting Started
 
-TrueNAS comes preinstalled with this client, but it is also possible to use the TrueNAS websocket client from a non-TrueNAS host.
+TrueNAS comes with this client preinstalled, but it is also possible to use the TrueNAS websocket client from a non-TrueNAS host.
 
-Ensure that Git is installed and run `pip install git+https://github.com/truenas/api_client.git` to automatically install dependencies.
+On a non-TrueNAS host, ensure that Git is installed and run `pip install git+https://github.com/truenas/api_client.git` to automatically install dependencies. You may alternatively clone this repository and run `python setup.py install`. Using a Python venv is recommended.
 
 ## Usage
 
 ### `midclt`
 
-The `midclt` command (not to be confused with the [TrueNAS CLI](https://github.com/truenas/midcli)) provides a direct and interactive way to make API calls through the client. To view its syntax, enter `midclt -h`. The `-h` option can also be used with any of `midclt`'s subcommands.
+The `midclt` command (not to be confused with the [TrueNAS CLI](https://github.com/truenas/midcli)) provides a way to make direct API calls through the client. To view its syntax, enter `midclt -h`. The `-h` option can also be used with any of `midclt`'s subcommands.
 
-The primary subcommand of `midclt` is `midclt call`. 
+The client's default behavior is to connect to the localhost's middleware socket. For a remote connection, e.g. from a Windows host, you must specify the `--uri` option and authenticate with either user credentials or an API key. For example: `midclt --uri ws://<TRUENAS_IP>/api/current -K key ...`
 
-### Instantiating a `Client`
+#### Make local API calls
 
+```
+root@my_truenas[~]# midclt call user.create '{"full_name": "John Doe", "username": "user", "password": "pass", "group_create": true}'
+```
 
+#### Login to a remote TrueNAS
 
-## Development
+```
+root@my_truenas[~]# midclt --uri ws://some.other.truenas/api/current -U user -P password call system.info
+```
+
+#### Start a job
+
+```
+root@my_truenas[~]# midclt call -j pool.dataset.lock mypool/mydataset
+```
+
+### Using the `Client` class
+
+The TrueNAS API client can also be used in Python scripts.
+
+#### Make local API calls
+
+```python
+from truenas_api_client import Client
+
+with Client() as c:  # Local IPC
+      print(c.ping())  # pong
+      user = {"full_name": "John Doe", "username": "user", "password": "pass", "group_create": True}
+      id = c.call("user.create", user)
+      user = c.call("user.get_instance", id)
+      print(user["full_name"])  # John Doe
+```
+
+#### Login with a user account or an API key
+
+```python
+# User account
+with Client(uri="ws://some.other.truenas/api/current") as c:
+      c.call("auth.login", username, password)
+
+# API key
+with Client(uri="ws://some.other.truenas/api/current") as c:
+      c.call("auth.login_with_api_key", key)
+```
+
+#### Start a job
+
+```python
+with Client() as c:
+      is_locked = c.call("pool.dataset.lock", "mypool/mydataset", job=True)
+      if is_locked:
+            args = {"datasets": [{"name": "mypool/mydataset", "passphrase": "passphrase"}]}
+            c.call("pool.dataset.unlock", "mypool/mydataset", args, job=True)
+```
 
 ## Helpful Links
 

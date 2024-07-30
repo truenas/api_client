@@ -17,14 +17,14 @@ Example::
 
     with Client() as c:  # Local IPC
         print(c.ping())  # pong
-        user = {"full_name": "John Doe", "username": "user", "password": "pass", "group_create": true}
+        user = {"full_name": "John Doe", "username": "user", "password": "pass", "group_create": True}
         id = c.call("user.create", user)
         user = c.call("user.get_instance", id)
         print(user["full_name"])  # John Doe
 
 Example::
 
-    c = Client("ws://example.com:80/api/current")  # Remote websocket connection
+    c = Client("ws://example.com/api/current")  # Remote websocket connection
     c.close()
 
 """
