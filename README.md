@@ -22,35 +22,33 @@ On a non-TrueNAS host, ensure that Git is installed and run `pip install git+htt
 
 ## Usage
 
-### `midclt`
-
 The `midclt` command (not to be confused with the [TrueNAS CLI](https://github.com/truenas/midcli)) provides a way to make direct API calls through the client. To view its syntax, enter `midclt -h`. The `-h` option can also be used with any of `midclt`'s subcommands.
 
 The client's default behavior is to connect to the localhost's middleware socket. For a remote connection, e.g. from a Windows host, you must specify the `--uri` option and authenticate with either user credentials or an API key. For example: `midclt --uri ws://<TRUENAS_IP>/api/current -K key ...`
 
-#### Make local API calls
+### Make local API calls
 
 ```
 root@my_truenas[~]# midclt call user.create '{"full_name": "John Doe", "username": "user", "password": "pass", "group_create": true}'
 ```
 
-#### Login to a remote TrueNAS
+### Login to a remote TrueNAS
 
 ```
 root@my_truenas[~]# midclt --uri ws://some.other.truenas/api/current -U user -P password call system.info
 ```
 
-#### Start a job
+### Start a job
 
 ```
 root@my_truenas[~]# midclt call -j pool.dataset.lock mypool/mydataset
 ```
 
-### Using the `Client` class
+## Development
 
 The TrueNAS API client can also be used in Python scripts.
 
-#### Make local API calls
+### Make local API calls
 
 ```python
 from truenas_api_client import Client
@@ -58,12 +56,12 @@ from truenas_api_client import Client
 with Client() as c:  # Local IPC
       print(c.ping())  # pong
       user = {"full_name": "John Doe", "username": "user", "password": "pass", "group_create": True}
-      id = c.call("user.create", user)
-      user = c.call("user.get_instance", id)
+      entry_id = c.call("user.create", user)
+      user = c.call("user.get_instance", entry_id)
       print(user["full_name"])  # John Doe
 ```
 
-#### Login with a user account or an API key
+### Login with a user account or an API key
 
 ```python
 # User account
@@ -75,7 +73,7 @@ with Client(uri="ws://some.other.truenas/api/current") as c:
       c.call("auth.login_with_api_key", key)
 ```
 
-#### Start a job
+### Start a job
 
 ```python
 with Client() as c:
@@ -87,7 +85,9 @@ with Client() as c:
 
 ## Helpful Links
 
+<a href="https://truenas.com">
 <img align="right" src="https://www.truenas.com/docs/images/TrueNAS_Open_Enterprise_Storage.png" />
+</a>
 
 - [Websocket API docs](https://www.truenas.com/docs/api/scale_websocket_api.html)
 - [Middleware repo](https://github.com/truenas/middleware)

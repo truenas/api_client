@@ -69,7 +69,7 @@ class ProgressBar(object):
 
     """
     def __init__(self):
-        self.message: str = None
+        self.message: str | None = None
         self.percentage: float = 0
         self.write_stream: TextIO = sys.stderr
         self.used_flag: bool = False
@@ -80,7 +80,7 @@ class ProgressBar(object):
 
     def draw(self):
         """Erase the previous progress bar and draw an updated one.
-        
+
         If `self.extra` is set, will display "Status: (message) Extra: (extra)".
 
         """
@@ -99,9 +99,9 @@ class ProgressBar(object):
         )
         self.write_stream.flush()
 
-    def update(self, percentage: float=None, message: str=None):
+    def update(self, percentage: float | None=None, message: str | None=None):
         """Update the progress bar with a new percentage and/or message, redrawing it.
-        
+
         Args:
             percentage: The new percentage to display. A value of `100.0` represents full.
             message: The "Status" message to display above the progress bar.

@@ -31,7 +31,7 @@ Example::
 import argparse
 from base64 import b64decode
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable
 import errno
 import logging
 import os
@@ -42,7 +42,7 @@ import socket
 import sys
 from threading import Event, Lock, Thread
 import time
-from typing import Any, Literal, NamedTuple, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, Protocol, TypeAlias, TypedDict
 import urllib.parse
 import uuid
 
@@ -54,7 +54,10 @@ from websocket._http import connect, proxy_info
 from websocket._socket import sock_opt
 
 from . import ejson as json
-from .jsonrpc import JSONRPCError
+from .jsonrpc import (
+    CollectionUpdateParams, ErrorExtra, ErrorObj, JobFields, JSONRPCError, JSONRPCMessage, TruenasError,
+    TruenasTraceback
+)
 from .utils import MIDDLEWARE_RUN_DIR, ProgressBar, undefined
 try:
     from libzfs import Error as ZFSError
@@ -78,14 +81,14 @@ class ReserveFDException(Exception):
 class WSClient:
     """A supporter class for `Client` that manages the `WebSocket` connection to the server.
 
-    The object used by `Client` to send and receive data.    
+    The object used by `Client` to send and receive data.
 
     """
     def __init__(self, url: str, *, client: 'Client', reserved_ports: bool=False, verify_ssl: bool=True):
         """Initialize a `WSClient`.
 
         Args:
-            url: The websocket to connect to. Can be a local Unix domain socket.
+            url: The websocket to connect to. `ws://` or `wss://` for secure connection.
             client: Reference to the `Client` instance that uses this object.
             reserved_ports: `True` if the `socket` should bind to a reserved port, i.e. 600-1024.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
@@ -96,8 +99,8 @@ class WSClient:
         self.reserved_ports = reserved_ports
         self.verify_ssl = verify_ssl
 
-        self.socket: socket.socket = None
-        self.app: WebSocketApp = None
+        self.socket: socket.socket
+        self.app: WebSocketApp
 
     def connect(self):
         """Connect a `socket` and start a `WebSocketApp` in a daemon `Thread`.
@@ -153,7 +156,7 @@ class WSClient:
         self.client.on_close(STATUS_NORMAL)
 
     def _bind_to_reserved_port(self):
-        """Bind to a random port in the 600-1024 range. 
+        """Bind to a random port in the 600-1024 range.
 
         Raises:
             ReserveFDException: Five failed attempts with different ports.
@@ -257,33 +260,30 @@ class Call:
         self.py_exception: BaseException | None = None
 
 
-_Progress = TypedDict('_Progress', {'percent': float | None, 'description': str | None})
+_JobCallback: TypeAlias = Callable[['_JobDict'], None]
 
 
-class _JobDict(TypedDict, total=False):
+class _JobDict(JobFields):
+    """Contains data received from the server for a particular running job."""
     __ready: Event
-    __callback: Callable[['_JobDict'], None] | None
-    state: Literal['SUCCESS', 'FAILED', 'ABORTED'] | None
-    progress: _Progress
-    result: Any
-    exc_info: dict[str, str | Iterable[tuple[str, str, int]]] | None
-    error: str
-    exception: str
+    """Is set when the job returns or ends in error."""
+    __callback: _JobCallback | None
+    """Procedure to execute each time a job update is received."""
 
 
 class Job:
     """A long-running background process on the server initiated by an API call.
 
-    Every `Job` is responsible for a corresponding `JobDict` in the client's list of jobs.
+    Every `Job` is responsible for a corresponding `_JobDict` in the client's list of jobs.
 
     """
-    def __init__(self, client: 'Client', job_id: str, callback: Callable[[_JobDict], None] | None=None):
+    def __init__(self, client: 'Client', job_id: str, callback: _JobCallback | None=None):
         """Initialize `Job`.
 
         Args:
             client: Reference to the client that created this `Job` and receives updates on its progress.
             job_id: The job id returned by the server. Index of this `Job` in the `client._jobs` dictionary.
-            callback: A function to be called every time a job event is received.
+            callback: A procedure to be called every time a job event is received.
 
         """
         self.client = client
@@ -372,26 +372,18 @@ class ErrnoMixin:
                 return k
 
 
-_ClientExceptionTraceback = TypedDict('_ClientExceptionTraceback', {
-    'class': str,
-    'frames': NotRequired[list[dict]],
-    'formatted': str,
-    'repr': str
-})
-"""The traceback object type received in `message['error']['data']['trace']`."""
-
-
 class ClientException(ErrnoMixin, Exception):
     """Represents any exception that might arise from a `Client`."""
 
-    def __init__(self, error: str, errno: int | None=None, trace: _ClientExceptionTraceback | None=None, extra=None):
+    def __init__(self, error: str, errno: int | None=None, trace: TruenasTraceback | None=None,
+                 extra: list[ErrorExtra] | None=None):
         """Initialize `ClientException`.
 
         Args:
             error: An error message offering a reason for the exception.
             errno: An error code to classify the error.
-            trace: A dictionary containing the traceback information.
-            extra: Any extra data pertaining to the exception.
+            trace: Traceback information from the server.
+            extra: Any other errors pertaining to the exception.
 
         """
         self.errno = errno
@@ -403,26 +395,19 @@ class ClientException(ErrnoMixin, Exception):
         return self.error
 
 
-class Error(NamedTuple):
-    """The data type contained in `ValidationErrors`."""
-    attribute: str
-    errmsg: str
-    errcode: int
-
-
 class ValidationErrors(ClientException):
-    """A raisable collection of `Error`s that indicates a validation error occurred on the server."""
+    """A raisable collection of `ErrorExtra`s that indicates a validation error occurred on the server."""
 
-    def __init__(self, errors: Iterable[tuple[str, str, int]]):
+    def __init__(self, errors: Iterable[ErrorExtra]):
         """Initialize `ValidationErrors`.
 
         Args:
-            errors:
+            errors: List of error codes and messages from the server.
 
         """
-        self.errors: list[Error] = []
+        self.errors: list[ErrorExtra] = []
         for e in errors:
-            self.errors.append(Error(e[0], e[1], e[2]))
+            self.errors.append(ErrorExtra(e[0], e[1], e[2]))
 
         super().__init__(str(self))
 
@@ -441,22 +426,28 @@ class CallTimeout(ClientException):
         super().__init__("Call timeout", errno.ETIMEDOUT)
 
 
+class _EventCallbackProtocol(Protocol):
+    """Specifies how event callbacks should be defined."""
+    def __call__(self, mtype: str, **message: Any) -> None:
+        ...
+
+
 class _Payload(TypedDict):
-    """Contains information about an event subscription.
+    """Contains data for managing a subscription.
 
     Attributes:
         callback: Procedure to call when the event is triggered.
         sync: If `True`, main client thread blocks until `callback` finishes each time it is invoked. Otherwise, run
             `callback` in the background as a daemon `Thread`.
         event: `Event` that is set when the subscription should end.
-        error:
+        error: Information included in the Notification if the subscription ended in error.
         id: Random UUID assigned by `core.subscribe`.
 
     """
-    callback: Callable[[str, Any], None] | None
+    callback: _EventCallbackProtocol
     sync: bool
     event: Event
-    error: NotRequired[str | dict]
+    error: NotRequired[str | TruenasError]
     id: NotRequired[str]
 
 
@@ -466,8 +457,8 @@ class Client:
     Keeps track of the calls made, jobs submitted, and callbacks. Maintains a websocket connection using a `WSClient`.
 
     """
-    def __init__(self, uri: str | None=None, reserved_ports: bool=False, py_exceptions=False, log_py_exceptions=False,
-                 call_timeout: float=undefined, verify_ssl: bool=True):
+    def __init__(self, uri: str | None=None, reserved_ports=False, py_exceptions=False, log_py_exceptions=False,
+                 call_timeout: float | object=undefined, verify_ssl=True):
         """Initialize a `Client`.
 
         Args:
@@ -475,7 +466,7 @@ class Client:
             reserved_ports: `True` if the local socket should use a reserved port.
             py_exceptions: `True` if the server should include exception objects in
                 `message['error']['data']['py_exception']`.
-            log_py_exceptions: `True` if exceptions from API calls should be logged.
+            log_py_exceptions: `True` if exception tracebacks from API calls should be logged.
             call_timeout: Number of seconds to allow an API call before timing out. Can be overridden on a per-call
                 basis. Defaults to `CALL_TIMEOUT`.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
@@ -495,13 +486,13 @@ class Client:
             call_timeout = CALL_TIMEOUT
 
         self._calls: dict[str, Call] = {}
-        self._jobs: defaultdict[str, _JobDict] = defaultdict(_JobDict)
+        self._jobs: defaultdict[str, _JobDict] = defaultdict(dict)  # type: ignore
         self._jobs_lock = Lock()
         self._jobs_watching = False
         self._py_exceptions = py_exceptions
         self._log_py_exceptions = log_py_exceptions
         self._call_timeout = call_timeout
-        self._event_callbacks: dict[str, list[_Payload]] = defaultdict(list)
+        self._event_callbacks: defaultdict[str, list[_Payload]] = defaultdict(list)
         self._set_options_call: Call | None = None
         self._closed = Event()
         self._connected = Event()
@@ -542,144 +533,29 @@ class Client:
             # running tasks in the event loop (i.e. failover.call_remote failover.get_disks_local)
             raise ClientException('Unexpected closure of remote connection', errno.ECONNABORTED)
 
-    def _recv(self, message: dict[str, Any]):
+    def _recv(self, message: JSONRPCMessage):
         """Process a deserialized JSON-RPC v2.0 message from the server.
 
         The TrueNAS websocket `Client` receives data from the server in two standard forms: Notifications and
         Responses. These are defined in the JSON-RPC v2.0 protocol at https://www.jsonrpc.org/specification.
 
-        A Notification is a Request from the server that does not elicit a Response. In the TrueNAS websocket client,
-        they are used to communicate subscription updates including when a subscription is terminated. These
-        subscription updates also include updates on jobs submitted by the client via `core.get_jobs`.
+        In the TrueNAS websocket client, Notifications are used to communicate subscription updates including when a
+        subscription is terminated. These subscription updates also include updates about jobs submitted by the client
+        via `core.get_jobs`.
 
         A Response is the server's answer to a Request sent by the client which may or may not come back immediately
-        depending on the Request sent. A Response contains either a `'result'` or an `'error'` JSON object (never
-        both).
+        depending on the Request sent.
 
         Args:
-            message: Deserialized JSON-RPC v2.0 data from the server. Can either represent a Notification or a
-                Response.
+            message: Deserialized JSON-RPC v2.0 data from the server.
 
-        A notification must follow the schema (TODO: throw these into README later):
-
-        {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["method", "params"],
-            "properties": {
-                "jsonrpc": {"enum": ["2.0"]},
-                "method": {"enum": ["collection_update", "notify_unsubscribed"]},
-                "params": {
-                    "type": "object",
-                    "required": ["collection"],
-                    "properties": {
-                        "collection": {"type": "string"},
-                        "msg": {"enum": ["changed", "added"]},
-                        "fields": {
-                            "type": "object",
-                            "required": ["id", "progress"],
-                            "properties": {
-                                "id": {"type": "string"},
-                                "state": {"enum": ["SUCCESS", "FAILED", "ABORTED"]},
-                                "progress": {
-                                    "type": "object",
-                                    "required": ["percent", "description"],
-                                    "properties": {
-                                        "percent": {"type": ["number", "null"]},
-                                        "description": {"type": ["string", "null"]}
-                                    }
-                                }
-                            }
-                        },
-                        "error": {
-                            "type": "object",
-                            "required": ["reason"],
-                            "properties": {
-                                "reason": {"type": ["null", "string"]}
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        A response must follow the schema:
-
-        {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["id"],
-            "properties": {
-                "jsonrpc": {"enum": ["2.0"]},
-                "result": {"type": ["string", "number", "boolean", "null", "object", "array"]},
-                "error": {
-                    "type": "object",
-                    "required": ["code"],
-                    "properties": {
-                        "code": {"type": "number"},
-                        "message": {"type": "string"},
-                        "data": {
-                            "type": "object",
-                            "required": ["extra"],
-                            "properties": {
-                                "reason": {"type": "string"},
-                                "error": {"type": "number"},
-                                "trace": {
-                                    "type": "object",
-                                    "required": [],
-                                    "properties": {
-                                        "class": {"type": "string"},
-                                        "frames": {
-                                            "type": "array",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "filename": {"type": "string"},
-                                                    "lineno": {"type": "number"},
-                                                    "method": {"type": "string"},
-                                                    "line": {"type": "string"},
-                                                    "argspec": {"type": "array"},
-                                                    "varargspec": {"type": "string"},
-                                                    "keywordspec": {"type": "string"},
-                                                    "locals": {"type": "object"}
-                                                }
-                                            }
-                                        },
-                                        "formatted": {"type": "string"},
-                                        "repr": {"type": "string"},
-                                    }
-                                },
-                                "extra": {
-                                    "oneOf": [
-                                        {
-                                            "type": "array",
-                                            "items": [
-                                                {"type": "string"},
-                                                {"type": "string"},
-                                                {"type": "number"}
-                                            ],
-                                            "minItems": 3,
-                                            "maxItems": 3
-                                        },
-                                        {"type": "null"}
-                                    ]
-                                },
-                                "py_exception": {"type": "string"}
-                            }
-                        }
-                    }
-                },
-                "id": {"type": "string"}
-            }
-        }
-        
         """
         try:
             if 'method' in message:
-                params = message['params']
                 match message['method']:
                     case 'collection_update':
                         if self._event_callbacks:
+                            params = message['params']
                             if '*' in self._event_callbacks:
                                 for event in self._event_callbacks['*']:
                                     self._run_callback(event, [params['msg'].upper()], params)
@@ -687,6 +563,7 @@ class Client:
                                 for event in self._event_callbacks[params['collection']]:
                                     self._run_callback(event, [params['msg'].upper()], params)
                     case 'notify_unsubscribed':
+                        params = message['params']
                         if params['collection'] in self._event_callbacks:
                             for event in self._event_callbacks[params['collection']]:
                                 if 'error' in params:
@@ -721,11 +598,11 @@ class Client:
         except Exception:
             logger.error('Unhandled exception in Client._recv', exc_info=True)
 
-    def _parse_error(self, error: dict, call: Call):
+    def _parse_error(self, error: ErrorObj, call: Call):
         """Convert an error received from the server into a `ClientException` and store it.
 
         Args:
-            error: As defined in the Response schema.
+            error: The JSON object received in an error Response.
             call: The associated `Call` object with which to store the `ClientException`.
 
         """
@@ -733,7 +610,7 @@ class Client:
         if self._py_exceptions and code in [JSONRPCError.INVALID_PARAMS, JSONRPCError.TRUENAS_CALL_ERROR]:
             data = error['data']
             call.error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
-            if data.get('py_exception'):
+            if 'py_exception' in data:
                 call.py_exception = pickle.loads(b64decode(data['py_exception']))
         elif code == JSONRPCError.INVALID_PARAMS:
             call.error = ValidationErrors(error['data']['extra'])
@@ -743,7 +620,7 @@ class Client:
         else:
             call.error = ClientException(code.name)
 
-    def _run_callback(self, event: _Payload, args: Iterable, kwargs: Mapping):
+    def _run_callback(self, event: _Payload, args: Iterable[str], kwargs: CollectionUpdateParams):
         """Call the passed `_Payload`'s callback function.
 
         Block until the callback returns if `event['sync']` is set. Otherwise, run in a separate daemon `Thread`.
@@ -794,7 +671,7 @@ class Client:
                 job['exc_info'] = {
                     'type': 'Exception',
                     'repr': error,
-                    'extra': None,
+                    'extra': [],
                 }
                 event.set()
 
@@ -815,14 +692,14 @@ class Client:
         "state" is received.
 
         Args:
-            mtype: Indicates if the job state has changed. (?)
-            **message: The "params" dictionary of the JSON-RPC Notification.
+            mtype: Indicates if the job state has changed.
+            **message: The members contained in `CollectionUpdateParams`.
 
         Keyword Args:
-            fields (dict): Contains job id. 
+            fields (JobFields): Contains job id and other information about the job from the server.
 
         """
-        fields = message.get('fields')
+        fields: JobFields = message['fields']
         job_id = fields['id']
         with self._jobs_lock:
             if fields:
@@ -845,8 +722,9 @@ class Client:
         self._jobs_watching = True
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
-    def call(self, method: str, *params, background=False, callback: Callable[[_JobDict], None] | None=None,
-             job: Literal['RETURN'] | bool=False, register_call=None, timeout: float=undefined) -> Call | Job | Any:
+    def call(self, method: str, *params, background=False, callback: _JobCallback | None=None,
+             job: Literal['RETURN'] | bool=False, register_call: bool | None=None,
+             timeout: float | object=undefined) -> Any:
         """The primary way to send call requests to the API.
 
         Send a JSON-RPC v2.0 Request to the server.
@@ -900,10 +778,10 @@ class Client:
             if not background:
                 self._unregister_call(c)
 
-    def wait(self, c: Call, *, callback: Callable[[_JobDict], None] | None=None, job: Literal['RETURN'] | bool=False,
-             timeout: float=undefined) -> Job | Any:
+    def wait(self, c: Call, *, callback: _JobCallback | None=None, job: Literal['RETURN'] | bool=False,
+             timeout: float | object=undefined) -> Any:
         """Wait for an API call to return and return its result.
-        
+
         Args:
             c: The `Call` object containing the data that was sent.
             callback: The callback to pass to the job if `job` is set.
@@ -959,7 +837,7 @@ class Client:
             'event': Event(),
         }
 
-    def subscribe(self, name: str, callback: Callable[[str, Any], None], payload: _Payload | None=None,
+    def subscribe(self, name: str, callback: _EventCallbackProtocol, payload: _Payload | None=None,
                   sync: bool=False) -> str:
         """Subscribe to an event by calling `core.subscribe`.
 
@@ -1021,44 +899,16 @@ class Client:
 
 
 def main():
-    """The entry point for the client.
+    """The entry point for midclt. Run `midclt -h` to see usage.
 
-    The API client can be interfaced with using the `midclt` command.
+    Sub-commands: call, ping, subscribe
 
-    Sub-commands:
-        call [-h] [-j job] [-jp {progressbar, description}] method [method ...]:
-            Call an API method(s).
-        ping [-h]:
-            Ping!
-        waitready [-h]:
-            Wait server.
-        sql [-h] sql [sql ...]:
-            Execute a SQL command(s).
-        subscribe [-h] [-n number] [-t timeout] event:
-            Subscribe to an event.
-
-    Options:
-        -h, --help:
-            help
-        -q, --quiet:
-            quiet
-        -u, --uri:
-            URI
-        -U, --username:
-            username
-        -P, --password:
-            password
-        -K, --api-key
-            API key
-        -t, --timeout
-            timeout
+    Options: -h, -q, -u URI, -U USERNAME, -P PASSWORD, -K API_KEY, -t TIMEOUT
 
     Raises:
-        ValueError: Login failed (`midclt call` and `midclt sql`) or a subscription terminated with an error
-            (`midclt subscribe`).
+        ValueError: Login failed (`midclt call`) or a subscription terminated with an error (`midclt subscribe`).
 
     """
-
     parser = argparse.ArgumentParser()
     parser.add_argument('-q', '--quiet', action='store_true')
     parser.add_argument('-u', '--uri')
