@@ -1,0 +1,25 @@
+name: "pytype"
+
+on:
+  pull_request:
+    types:
+      - 'synchronize'
+      - 'opened'
+
+jobs:
+  type-check:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+
+    - name: Install Dependencies
+      run: pip install networkx>=2 pytype
+
+    - name: Type-Check
+      run: pytype -j auto .
