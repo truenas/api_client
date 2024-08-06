@@ -1,6 +1,37 @@
+"""Provides a simple way to call middleware API endpoints using a websocket connection.
+
+The full websocket API documentation can be found at https://www.truenas.com/docs/api/core_websocket_api.html.
+
+Example::
+
+    $ midclt ping && echo 'Connected' || echo 'Unable to ping'
+    Connected
+    $ midclt call user.create '{"full_name": "John Doe", "username": "user", "password": "pass", "group_create": true}'
+    70
+    $ midclt call user.get_instance 70
+    {"id": 70, "uid": 3000, "username": "user", "unixhash": ... }
+    $ midclt call user.query '[["full_name", "=", "John Doe"]]'
+    {"id": 70, "uid": 3000, "username": "user", "unixhash": ... }
+
+Example::
+
+    with Client() as c:  # Local IPC
+        print(c.ping())  # pong
+        user = {"full_name": "John Doe", "username": "user", "password": "pass", "group_create": True}
+        id = c.call("user.create", user)
+        user = c.call("user.get_instance", id)
+        print(user["full_name"])  # John Doe
+
+Example::
+
+    c = Client("ws://example.com/api/current")  # Remote websocket connection
+    c.close()
+
+"""
 import argparse
 from base64 import b64decode
-from collections import defaultdict, namedtuple
+from collections import defaultdict
+from collections.abc import Callable, Iterable
 import errno
 import logging
 import os
@@ -11,6 +42,7 @@ import socket
 import sys
 from threading import Event, Lock, Thread
 import time
+from typing import Any, Literal, NotRequired, Protocol, TypeAlias, TypedDict
 import urllib.parse
 import uuid
 
@@ -22,7 +54,10 @@ from websocket._http import connect, proxy_info
 from websocket._socket import sock_opt
 
 from . import ejson as json
-from .jsonrpc import JSONRPCError
+from .jsonrpc import (
+    CollectionUpdateParams, ErrorExtra, ErrorObj, JobFields, JSONRPCError, JSONRPCMessage, TruenasError,
+    TruenasTraceback
+)
 from .utils import MIDDLEWARE_RUN_DIR, ProgressBar, undefined
 try:
     from libzfs import Error as ZFSError
@@ -35,23 +70,45 @@ else:
 logger = logging.getLogger(__name__)
 
 CALL_TIMEOUT = int(os.environ.get('CALL_TIMEOUT', 60))
+"""Default number of seconds to allow an API call until timing out."""
 
 
 class ReserveFDException(Exception):
+    """A `WSClient` instance failed to bind to a reserved port."""
     pass
 
 
 class WSClient:
-    def __init__(self, url, *, client, reserved_ports=False, verify_ssl=True):
+    """A supporter class for `Client` that manages the `WebSocket` connection to the server.
+
+    The object used by `Client` to send and receive data.
+
+    """
+    def __init__(self, url: str, *, client: 'Client', reserved_ports: bool=False, verify_ssl: bool=True):
+        """Initialize a `WSClient`.
+
+        Args:
+            url: The websocket to connect to. `ws://` or `wss://` for secure connection.
+            client: Reference to the `Client` instance that uses this object.
+            reserved_ports: `True` if the `socket` should bind to a reserved port, i.e. 600-1024.
+            verify_ssl: `True` if SSL certificate should be verified before connecting.
+
+        """
         self.url = url
         self.client = client
         self.reserved_ports = reserved_ports
         self.verify_ssl = verify_ssl
 
-        self.socket = None
-        self.app = None
+        self.socket: socket.socket
+        self.app: WebSocketApp
 
     def connect(self):
+        """Connect a `socket` and start a `WebSocketApp` in a daemon `Thread`.
+
+        Raises:
+            Exception: The `socket` failed to connect.
+
+        """
         unix_socket_prefix = "ws+unix://"
         if self.url.startswith(unix_socket_prefix):
             self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -71,7 +128,7 @@ class WSClient:
         else:
             sockopt = sock_opt(None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE})
             sockopt.timeout = 10
-            self.socket = connect(self.url, sockopt, proxy_info(), None)[0]
+            self.socket = connect(self.url, sockopt, proxy_info(), None)[0]  # websocket._http.connect()
             app_url = self.url
 
         self.app = WebSocketApp(
@@ -84,14 +141,27 @@ class WSClient:
         )
         Thread(daemon=True, target=self.app.run_forever).start()
 
-    def send(self, data):
-        return self.app.send(data)
+    def send(self, data: bytes | str):
+        """Send data to the server by calling `WebSocketApp.send()`.
+
+        Args:
+            data: The serialized JSON-RPC v2.0-formatted request to send.
+
+        """
+        self.app.send(data)
 
     def close(self):
+        """Cleanly close the `WebSocket` connection to the server."""
         self.app.close()
         self.client.on_close(STATUS_NORMAL)
 
     def _bind_to_reserved_port(self):
+        """Bind to a random port in the 600-1024 range.
+
+        Raises:
+            ReserveFDException: Five failed attempts with different ports.
+
+        """
         # linux doesn't have a mechanism to allow the kernel to dynamically
         # assign ports in the "privileged" range (i.e. 600 - 1024) so we
         # loop through and call bind() on a privileged port explicitly since
@@ -116,6 +186,11 @@ class WSClient:
         raise ReserveFDException()
 
     def _on_open(self, app):
+        """Callback passed to the `WebSocketApp` to execute when `run_forever` is called.
+
+        Configure the `socket` and call `client.on_open()`.
+
+        """
         # TCP keepalive settings don't apply to local unix sockets
         if 'ws+unix' not in self.url:
             # enable keepalives on the socket
@@ -141,28 +216,76 @@ class WSClient:
         self.client.on_open()
 
     def _on_message(self, app, data):
+        """Callback passed to the `WebSocketApp` to execute when data is received.
+
+        Pass the received data to the `Client`.
+
+        """
         self.client._recv(json.loads(data))
 
     def _on_error(self, app, e):
+        """Callback passed to the `WebSocketApp` to execute when an error occurs.
+
+        Log the error.
+
+        """
         logger.warning("Websocket client error: %r", e)
 
     def _on_close(self, app, code, reason):
+        """Callback passed to the `WebSocketApp` to execute when it closes.
+
+        Close the `Client`.
+
+        """
         self.client.on_close(code, reason)
 
 
 class Call:
-    def __init__(self, method, params):
+    """An encapsulation of the data from a single request-response pair."""
+
+    def __init__(self, method: str, params: tuple):
+        """Initialize a `Call` object with an automatically-assigned id.
+
+        Args:
+            method: The API method being called.
+            params: Arguments passed to the method.
+
+        """
         self.id = str(uuid.uuid4())
         self.method = method
         self.params = params
         self.returned = Event()
-        self.result = None
-        self.error = None
-        self.py_exception = None
+        self.result: Any = None
+        self.error: ClientException | None = None
+        self.py_exception: BaseException | None = None
+
+
+_JobCallback: TypeAlias = Callable[['_JobDict'], None]
+
+
+class _JobDict(JobFields):
+    """Contains data received from the server for a particular running job."""
+    __ready: Event
+    """Is set when the job returns or ends in error."""
+    __callback: _JobCallback | None
+    """Procedure to execute each time a job update is received."""
 
 
 class Job:
-    def __init__(self, client, job_id, callback=None):
+    """A long-running background process on the server initiated by an API call.
+
+    Every `Job` is responsible for a corresponding `_JobDict` in the client's list of jobs.
+
+    """
+    def __init__(self, client: 'Client', job_id: str, callback: _JobCallback | None=None):
+        """Initialize `Job`.
+
+        Args:
+            client: Reference to the client that created this `Job` and receives updates on its progress.
+            job_id: The job id returned by the server. Index of this `Job` in the `client._jobs` dictionary.
+            callback: A procedure to be called every time a job event is received.
+
+        """
         self.client = client
         self.job_id = job_id
         # If a job event has been received already then we must set an Event
@@ -170,7 +293,7 @@ class Job:
         # Otherwise, we create a new stub for the job with the Event for when
         # the job event arrives to use existing event.
         with client._jobs_lock:
-            job = client._jobs[job_id]
+            job = client._jobs[job_id]  # Creates an entry if one doesn't exist
             self.event = job.get('__ready')
             if self.event is None:
                 self.event = job['__ready'] = Event()
@@ -179,7 +302,17 @@ class Job:
     def __repr__(self):
         return f'<Job[{self.job_id}]>'
 
-    def result(self):
+    def result(self) -> Any:
+        """Wait for the job to finish and return its result.
+
+        Returns:
+            Any: The job's result.
+
+        Raises:
+            ValidationErrors: The job failed due to one or more validation errors.
+            ClientException: No job event was received or it did not succeed.
+
+        """
         # Wait indefinitely for the job event with state SUCCESS/FAILED/ABORTED
         self.event.wait()
         job = self.client._jobs.pop(self.job_id, None)
@@ -201,17 +334,37 @@ class Job:
 
 
 class ErrnoMixin:
+    """Provides custom error codes and a function to get the name of an error code."""
+
     ENOMETHOD = 201
+    """Service not found or method not found in service."""
     ESERVICESTARTFAILURE = 202
+    """Service failed to start."""
     EALERTCHECKERUNAVAILABLE = 203
+    """Alert checker unavailable."""
     EREMOTENODEERROR = 204
+    """Remote node responded with an error."""
     EDATASETISLOCKED = 205
+    """Locked datasets."""
     EINVALIDRRDTIMESTAMP = 206
+    """Invalid RRD timestamp."""
     ENOTAUTHENTICATED = 207
+    """Client not authenticated."""
     ESSLCERTVERIFICATIONERROR = 208
+    """SSL certificate/host key could not be verified."""
 
     @classmethod
-    def _get_errname(cls, code):
+    def _get_errname(cls, code: int) -> str | None:
+        """Get the name of an error given its error code.
+
+        Args:
+            code: An error code for either a ZFSError or a custom error defined in this class.
+
+        Returns:
+            str: The name of the associated error.
+            None: `code` does not match any known errors.
+
+        """
         if LIBZFS and 2000 <= code <= 2100:
             return 'EZFS_' + ZFSError(code).name
         for k, v in cls.__dict__.items():
@@ -220,7 +373,19 @@ class ErrnoMixin:
 
 
 class ClientException(ErrnoMixin, Exception):
-    def __init__(self, error, errno=None, trace=None, extra=None):
+    """Represents any exception that might arise from a `Client`."""
+
+    def __init__(self, error: str, errno: int | None=None, trace: TruenasTraceback | None=None,
+                 extra: list[ErrorExtra] | None=None):
+        """Initialize `ClientException`.
+
+        Args:
+            error: An error message offering a reason for the exception.
+            errno: An error code to classify the error.
+            trace: Traceback information from the server.
+            extra: Any other errors pertaining to the exception.
+
+        """
         self.errno = errno
         self.error = error
         self.trace = trace
@@ -230,14 +395,19 @@ class ClientException(ErrnoMixin, Exception):
         return self.error
 
 
-Error = namedtuple('Error', ['attribute', 'errmsg', 'errcode'])
-
-
 class ValidationErrors(ClientException):
-    def __init__(self, errors):
-        self.errors = []
+    """A raisable collection of `ErrorExtra`s that indicates a validation error occurred on the server."""
+
+    def __init__(self, errors: Iterable[ErrorExtra]):
+        """Initialize `ValidationErrors`.
+
+        Args:
+            errors: List of error codes and messages from the server.
+
+        """
+        self.errors: list[ErrorExtra] = []
         for e in errors:
-            self.errors.append(Error(e[0], e[1], e[2]))
+            self.errors.append(ErrorExtra(e[0], e[1], e[2]))
 
         super().__init__(str(self))
 
@@ -250,16 +420,60 @@ class ValidationErrors(ClientException):
 
 
 class CallTimeout(ClientException):
+    """A special `ClientException` raised when a `Call` times out before it can return a result."""
     def __init__(self):
+        """Initiate a `ClientException` with message `"Call timeout"`."""
         super().__init__("Call timeout", errno.ETIMEDOUT)
 
 
+class _EventCallbackProtocol(Protocol):
+    """Specifies how event callbacks should be defined."""
+    def __call__(self, mtype: str, **message: Any) -> None:
+        ...
+
+
+class _Payload(TypedDict):
+    """Contains data for managing a subscription.
+
+    Attributes:
+        callback: Procedure to call when the event is triggered.
+        sync: If `True`, main client thread blocks until `callback` finishes each time it is invoked. Otherwise, run
+            `callback` in the background as a daemon `Thread`.
+        event: `Event` that is set when the subscription should end.
+        error: Information included in the Notification if the subscription ended in error.
+        id: Random UUID assigned by `core.subscribe`.
+
+    """
+    callback: _EventCallbackProtocol
+    sync: bool
+    event: Event
+    error: NotRequired[str | TruenasError]
+    id: NotRequired[str]
+
+
 class Client:
-    def __init__(self, uri=None, reserved_ports=False, py_exceptions=False, log_py_exceptions=False,
-                 call_timeout=undefined, verify_ssl=True):
-        """
-        Arguments:
-           :reserved_ports(bool): should the local socket used a reserved port
+    """The object used to interface with the TrueNAS API.
+
+    Keeps track of the calls made, jobs submitted, and callbacks. Maintains a websocket connection using a `WSClient`.
+
+    """
+    def __init__(self, uri: str | None=None, reserved_ports=False, py_exceptions=False, log_py_exceptions=False,
+                 call_timeout: float | object=undefined, verify_ssl=True):
+        """Initialize a `Client`.
+
+        Args:
+            uri: The address to connect to. Defaults to the middlewared socket.
+            reserved_ports: `True` if the local socket should use a reserved port.
+            py_exceptions: `True` if the server should include exception objects in
+                `message['error']['data']['py_exception']`.
+            log_py_exceptions: `True` if exception tracebacks from API calls should be logged.
+            call_timeout: Number of seconds to allow an API call before timing out. Can be overridden on a per-call
+                basis. Defaults to `CALL_TIMEOUT`.
+            verify_ssl: `True` if SSL certificate should be verified before connecting.
+
+        Raises:
+            ClientException: `WSClient` timed out or some other connection error occurred.
+
         """
         if uri is None:
             uri = f'ws+unix://{MIDDLEWARE_RUN_DIR}/middlewared.sock'
@@ -271,18 +485,18 @@ class Client:
         if call_timeout is undefined:
             call_timeout = CALL_TIMEOUT
 
-        self._calls = {}
-        self._jobs = defaultdict(dict)
+        self._calls: dict[str, Call] = {}
+        self._jobs: defaultdict[str, _JobDict] = defaultdict(dict)  # type: ignore
         self._jobs_lock = Lock()
         self._jobs_watching = False
         self._py_exceptions = py_exceptions
         self._log_py_exceptions = log_py_exceptions
         self._call_timeout = call_timeout
-        self._event_callbacks = defaultdict(list)
+        self._event_callbacks: defaultdict[str, list[_Payload]] = defaultdict(list)
         self._set_options_call: Call | None = None
         self._closed = Event()
         self._connected = Event()
-        self._connection_error = None
+        self._connection_error: str | None = None
         self._ws = WSClient(
             uri,
             client=self,
@@ -299,12 +513,19 @@ class Client:
     def __enter__(self):
         return self
 
-    def __exit__(self, typ, value, traceback):
+    def __exit__(self, typ: None, value, traceback):
         self.close()
-        if typ is not None:
-            raise
 
     def _send(self, data):
+        """Send data to the server using `WSClient`.
+
+        Args:
+            data: Object serializable with `ejson`.
+
+        Raises:
+            ClientException: Connection to the server closed prematurely.
+
+        """
         try:
             self._ws.send(json.dumps(data))
         except (AttributeError, WebSocketConnectionClosedException):
@@ -312,13 +533,29 @@ class Client:
             # running tasks in the event loop (i.e. failover.call_remote failover.get_disks_local)
             raise ClientException('Unexpected closure of remote connection', errno.ECONNABORTED)
 
-    def _recv(self, message):
+    def _recv(self, message: JSONRPCMessage):
+        """Process a deserialized JSON-RPC v2.0 message from the server.
+
+        The TrueNAS websocket `Client` receives data from the server in two standard forms: Notifications and
+        Responses. These are defined in the JSON-RPC v2.0 protocol at https://www.jsonrpc.org/specification.
+
+        In the TrueNAS websocket client, Notifications are used to communicate subscription updates including when a
+        subscription is terminated. These subscription updates also include updates about jobs submitted by the client
+        via `core.get_jobs`.
+
+        A Response is the server's answer to a Request sent by the client which may or may not come back immediately
+        depending on the Request sent.
+
+        Args:
+            message: Deserialized JSON-RPC v2.0 data from the server.
+
+        """
         try:
             if 'method' in message:
-                params = message['params']
                 match message['method']:
                     case 'collection_update':
                         if self._event_callbacks:
+                            params = message['params']
                             if '*' in self._event_callbacks:
                                 for event in self._event_callbacks['*']:
                                     self._run_callback(event, [params['msg'].upper()], params)
@@ -326,6 +563,7 @@ class Client:
                                 for event in self._event_callbacks[params['collection']]:
                                     self._run_callback(event, [params['msg'].upper()], params)
                     case 'notify_unsubscribed':
+                        params = message['params']
                         if params['collection'] in self._event_callbacks:
                             for event in self._event_callbacks[params['collection']]:
                                 if 'error' in params:
@@ -360,12 +598,19 @@ class Client:
         except Exception:
             logger.error('Unhandled exception in Client._recv', exc_info=True)
 
-    def _parse_error(self, error: dict, call: Call):
+    def _parse_error(self, error: ErrorObj, call: Call):
+        """Convert an error received from the server into a `ClientException` and store it.
+
+        Args:
+            error: The JSON object received in an error Response.
+            call: The associated `Call` object with which to store the `ClientException`.
+
+        """
         code = JSONRPCError(error['code'])
         if self._py_exceptions and code in [JSONRPCError.INVALID_PARAMS, JSONRPCError.TRUENAS_CALL_ERROR]:
             data = error['data']
             call.error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
-            if data.get('py_exception'):
+            if 'py_exception' in data:
                 call.py_exception = pickle.loads(b64decode(data['py_exception']))
         elif code == JSONRPCError.INVALID_PARAMS:
             call.error = ValidationErrors(error['data']['extra'])
@@ -375,16 +620,36 @@ class Client:
         else:
             call.error = ClientException(code.name)
 
-    def _run_callback(self, event, args, kwargs):
+    def _run_callback(self, event: _Payload, args: Iterable[str], kwargs: CollectionUpdateParams):
+        """Call the passed `_Payload`'s callback function.
+
+        Block until the callback returns if `event['sync']` is set. Otherwise, run in a separate daemon `Thread`.
+
+        Args:
+            event: The `_Payload` whose callback to run.
+            args: Positional arguments to the callback.
+            kwargs: Keyword arguments to the callback.
+
+        """
         if event['sync']:
             event['callback'](*args, **kwargs)
         else:
             Thread(target=event['callback'], args=args, kwargs=kwargs, daemon=True).start()
 
     def on_open(self):
+        """Make an API call to `core.set_options` to configure how middlewared sends its responses."""
         self._set_options_call = self.call("core.set_options", {"py_exceptions": self._py_exceptions}, background=True)
 
-    def on_close(self, code, reason=None):
+    def on_close(self, code: int, reason: str | None=None):
+        """Close this `Client` in response to the `WebSocketApp` closing.
+
+        End all unanswered calls and unreturned jobs with an error.
+
+        Args:
+            code: One of several closing frame status codes defined in `websocket._abnf`.
+            reason: A message to accompany the closing code and provide more information.
+
+        """
         error = f'WebSocket connection closed with code={code!r}, reason={reason!r}'
 
         self._connection_error = error
@@ -406,23 +671,35 @@ class Client:
                 job['exc_info'] = {
                     'type': 'Exception',
                     'repr': error,
-                    'extra': None,
+                    'extra': [],
                 }
                 event.set()
 
         self._closed.set()
 
-    def _register_call(self, call):
+    def _register_call(self, call: Call):
+        """Save a `Call` and index it by its id."""
         self._calls[call.id] = call
 
-    def _unregister_call(self, call):
+    def _unregister_call(self, call: Call):
+        """Remove a `Call` after it has returned."""
         self._calls.pop(call.id, None)
 
-    def _jobs_callback(self, mtype, **message):
+    def _jobs_callback(self, mtype: str, **message):
+        """Process a received job event.
+
+        Update the saved job info, execute its saved callback in the background, and set its "__ready" flag if its
+        "state" is received.
+
+        Args:
+            mtype: Indicates if the job state has changed.
+            **message: The members contained in `CollectionUpdateParams`.
+
+        Keyword Args:
+            fields (JobFields): Contains job id and other information about the job from the server.
+
         """
-        Method to process the received job events.
-        """
-        fields = message.get('fields')
+        fields: JobFields = message['fields']
         job_id = fields['id']
         with self._jobs_lock:
             if fields:
@@ -441,13 +718,37 @@ class Client:
                     event.set()
 
     def _jobs_subscribe(self):
-        """
-        Subscribe to job updates, calling `_jobs_callback` on every new event.
-        """
+        """Subscribe to job updates, calling `_jobs_callback` on every new event."""
         self._jobs_watching = True
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
-    def call(self, method, *params, background=False, callback=None, job=False, register_call=None, timeout=undefined):
+    def call(self, method: str, *params, background=False, callback: _JobCallback | None=None,
+             job: Literal['RETURN'] | bool=False, register_call: bool | None=None,
+             timeout: float | object=undefined) -> Any:
+        """The primary way to send call requests to the API.
+
+        Send a JSON-RPC v2.0 Request to the server.
+
+        Args:
+            method: An API endpoint to call.
+            *params: Arguments to pass to the endpoint.
+            background: If `background=True`, send the request and return a `Call` object before receiving a response.
+                By default, wait for the call to return instead.
+            callback: The callback to pass to the job if `job` is set.
+            job: If set, subscribe to job updates and if `background=False`, create a `Job`. If `job='RETURN'`, return
+                the `Job` object rather than just its result.
+            timeout: Number of seconds to allow the call before timing out if `background=False`.
+
+        Returns:
+            Call: If `background` is set, return an object representing the request-response pair.
+            Job: If `job='RETURN'`, return the `Job` object.
+            Any: Otherwise, return the result of the call.
+
+        Raises:
+            ClientException: Connection to the server closed prematurely or the call ended in error.
+            CallTimeout: The call took longer than `timeout` seconds to return.
+
+        """
         if register_call is None:
             register_call = not background
 
@@ -477,7 +778,26 @@ class Client:
             if not background:
                 self._unregister_call(c)
 
-    def wait(self, c, *, callback=None, job=False, timeout=undefined):
+    def wait(self, c: Call, *, callback: _JobCallback | None=None, job: Literal['RETURN'] | bool=False,
+             timeout: float | object=undefined) -> Any:
+        """Wait for an API call to return and return its result.
+
+        Args:
+            c: The `Call` object containing the data that was sent.
+            callback: The callback to pass to the job if `job` is set.
+            job: If set, create a `Job`. If `job='RETURN'`, return the `Job` object rather than just its result.
+            timeout: Override the default number of seconds until a timeout exception occurs.
+
+        Returns:
+            Job: If `job='RETURN'`, return the `Job` object.
+            Any: If `job=True`, return the job's result. Otherwise, return the call's result.
+
+        Raises:
+            CallTimeout: The call took longer than `timeout` seconds to return.
+            ClientException: The call ended in error and `py_exception` was not enabled for `c`.
+            BaseException: The call ended in error and `py_exception` was enabled for `c`.
+
+        """
         if timeout is undefined:
             timeout = self._call_timeout
 
@@ -504,14 +824,34 @@ class Client:
             self._unregister_call(c)
 
     @staticmethod
-    def event_payload():
+    def event_payload() -> _Payload:
+        """Create an empty payload.
+
+        Returns:
+            _Payload: Empty `_Payload`.
+
+        """
         return {
             'callback': None,
             'sync': False,
             'event': Event(),
         }
 
-    def subscribe(self, name, callback, payload=None, sync=False):
+    def subscribe(self, name: str, callback: _EventCallbackProtocol, payload: _Payload | None=None,
+                  sync: bool=False) -> str:
+        """Subscribe to an event by calling `core.subscribe`.
+
+        Args:
+            name: The name of the event to subscribe to.
+            callback: A procedure to call when an event is triggered.
+            payload: Dictionary containing subscription information.
+            sync: If `True`, main client thread blocks until `callback` finishes each time it is invoked. Otherwise,
+                run `callback` in the background as a daemon `Thread`.
+
+        Returns:
+            str: The `_Payload` id assigned by `core.subscribe`.
+
+        """
         payload = payload or self.event_payload()
         payload.update({
             'callback': callback,
@@ -521,7 +861,13 @@ class Client:
         payload['id'] = self.call('core.subscribe', name, timeout=10)
         return payload['id']
 
-    def unsubscribe(self, id_):
+    def unsubscribe(self, id_: str):
+        """Call `core.unsubscribe` and remove all associated `_Payload`s
+
+        Args:
+            id_: `id` of the `_Payload` to remove.
+
+        """
         self.call('core.unsubscribe', id_)
         for k, events in list(self._event_callbacks.items()):
             events = [v for v in events if v['id'] != id_]
@@ -530,11 +876,22 @@ class Client:
             else:
                 self._event_callbacks.pop(k)
 
-    def ping(self, timeout=10):
+    def ping(self, timeout: float=10) -> Literal['pong']:
+        """Call `core.ping` to verify connection to the server.
+
+        Args:
+            timeout: Number of seconds to allow before raising `CallTimeout`.
+
+        Raises:
+            ClientException: Connection to the server closed prematurely or the call ended in error.
+            CallTimeout: The call took longer than `timeout` seconds to return.
+
+        """
         c = self.call('core.ping', background=True, register_call=True)
         return self.wait(c, timeout=timeout)
 
     def close(self):
+        """Allow one second for the `WSClient` to close."""
         self._ws.close()
         # Wait for websocketclient thread to close
         self._closed.wait(1)
@@ -542,6 +899,16 @@ class Client:
 
 
 def main():
+    """The entry point for midclt. Run `midclt -h` to see usage.
+
+    Sub-commands: call, ping, subscribe
+
+    Options: -h, -q, -u URI, -U USERNAME, -P PASSWORD, -K API_KEY, -t TIMEOUT
+
+    Raises:
+        ValueError: Login failed (`midclt call`) or a subscription terminated with an error (`midclt subscribe`).
+
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument('-q', '--quiet', action='store_true')
     parser.add_argument('-u', '--uri')
@@ -564,15 +931,14 @@ def main():
     iparser.add_argument('method', nargs='+')
     subparsers.add_parser('ping', help='Ping')
     subparsers.add_parser('waitready', help='Wait server')
-    iparser = subparsers.add_parser('sql', help='Run SQL command')
-    iparser.add_argument('sql', nargs='+')
     iparser = subparsers.add_parser('subscribe', help='Subscribe to event')
     iparser.add_argument('event')
     iparser.add_argument('-n', '--number', type=int, help='Number of events to wait before exit')
     iparser.add_argument('-t', '--timeout', type=int)
     args = parser.parse_args()
 
-    def from_json(args):
+    def from_json(args: Iterable):
+        """Deserialize each item in `args` if possible using `ejson`."""
         for i in args:
             try:
                 yield json.loads(i)
@@ -600,7 +966,8 @@ def main():
                         if args.job_print == 'progressbar':
                             # display the job progress and status message while we wait
 
-                            def callback(progress_bar, job):
+                            def callback(progress_bar: ProgressBar, job: _JobDict):
+                                """Update `progress_bar` with information in `job['progress']`."""
                                 try:
                                     progress_bar.update(
                                         job['progress']['percent'], job['progress']['description']
@@ -618,7 +985,8 @@ def main():
                         else:
                             lastdesc = ''
 
-                            def callback(job):
+                            def callback(job: _JobDict):
+                                """Print `job`'s description to `stderr` if it has changed."""
                                 nonlocal lastdesc
                                 desc = job['progress']['description']
                                 if desc is not None and desc != lastdesc:
@@ -652,26 +1020,6 @@ def main():
         with Client(uri=args.uri) as c:
             if not c.ping():
                 sys.exit(1)
-    elif args.name == 'sql':
-        with Client(uri=args.uri) as c:
-            try:
-                if args.username and args.password:
-                    if not c.call('auth.login', args.username, args.password):
-                        raise ValueError('Invalid username or password')
-            except Exception as e:
-                print("Failed to login: ", e)
-                sys.exit(0)
-            rv = c.call('datastore.sql', args.sql[0])
-            if rv:
-                for i in rv:
-                    data = []
-                    for f in i:
-                        if isinstance(f, bool):
-                            data.append(str(int(f)))
-                        else:
-                            data.append(str(f))
-                    print('|'.join(data))
-
     elif args.name == 'subscribe':
         with Client(uri=args.uri) as c:
 
@@ -679,7 +1027,8 @@ def main():
             event = subscribe_payload['event']
             number = 0
 
-            def cb(mtype, **message):
+            def cb(mtype: str, **message):
+                """Print the event message and unsubscribe if the maximum number of events is reached."""
                 nonlocal number
                 print(json.dumps(message))
                 number += 1
