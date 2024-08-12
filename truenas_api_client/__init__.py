@@ -585,7 +585,7 @@ def main():
     subparsers = parser.add_subparsers(help='sub-command help', dest='name')
     iparser = subparsers.add_parser('call', help='Call method')
     iparser.add_argument(
-        '-j', '--job', help='Call a long running job', type=bool, default=False
+        '-j', '--job', help='Call a long running job', action='store_true'
     )
     iparser.add_argument(
         '-jp', '--job-print',
