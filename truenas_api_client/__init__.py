@@ -264,10 +264,6 @@ class Client:
         if uri is None:
             uri = f'ws+unix://{MIDDLEWARE_RUN_DIR}/middlewared.sock'
 
-        # FIXME: Jenkins pipeline has a legacy URL
-        if uri.endswith('/websocket'):
-            uri = uri.removesuffix('/websocket') + '/api/current'
-
         if call_timeout is undefined:
             call_timeout = CALL_TIMEOUT
 
