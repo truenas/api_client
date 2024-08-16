@@ -1,20 +1,16 @@
-import argparse
 from base64 import b64decode
 from collections import defaultdict
 import errno
 import logging
-import os
 import pickle
-import pprint
 import random
 import socket
-import sys
+import ssl
 from threading import Event, Lock, Thread
 import time
 import urllib.parse
 import uuid
 
-import ssl
 from websocket import WebSocketApp
 from websocket._abnf import STATUS_NORMAL
 from websocket._exceptions import WebSocketConnectionClosedException
@@ -23,32 +19,10 @@ from websocket._socket import sock_opt
 
 from . import ejson as json
 from .config import CALL_TIMEOUT
-from .exc import ReserveFDException, ClientException, ErrnoMixin, ValidationErrors, CallTimeout
-from .legacy import LegacyClient
-from .jsonrpc import JSONRPCError
-from .utils import MIDDLEWARE_RUN_DIR, ProgressBar, undefined
+from .exc import ReserveFDException, ClientException, ValidationErrors, CallTimeout
+from .utils import MIDDLEWARE_RUN_DIR, undefined
 
 logger = logging.getLogger(__name__)
-
-
-class Client:
-    def __init__(self, uri=None, reserved_ports=False, py_exceptions=False, log_py_exceptions=False,
-                 call_timeout=undefined, verify_ssl=True):
-        if uri is not None and uri.endswith('/websocket'):
-            client_class = LegacyClient
-        else:
-            client_class = JSONRPCClient
-
-        self.__client = client_class(uri, reserved_ports, py_exceptions, log_py_exceptions, call_timeout, verify_ssl)
-
-    def __getattr__(self, item):
-        return getattr(self.__client, item)
-
-    def __enter__(self):
-        return self.__client.__enter__()
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        return self.__client.__exit__(exc_type, exc_val, exc_tb)
 
 
 class WSClient:
@@ -66,7 +40,7 @@ class WSClient:
         if self.url.startswith(unix_socket_prefix):
             self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.socket.connect(self.url.removeprefix(unix_socket_prefix))
-            app_url = "ws://localhost/api/current"  # Adviced by official docs to use dummy hostname
+            app_url = "ws://localhost/websocket"  # Adviced by official docs to use dummy hostname
         elif self.reserved_ports:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.settimeout(10)
@@ -77,7 +51,7 @@ class WSClient:
             except Exception:
                 self.socket.close()
                 raise
-            app_url = "ws://localhost/api/current"  # Adviced by official docs to use dummy hostname
+            app_url = "ws://localhost/websocket"  # Adviced by official docs to use dummy hostname
         else:
             sockopt = sock_opt(None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE})
             sockopt.timeout = 10
@@ -167,7 +141,11 @@ class Call:
         self.params = params
         self.returned = Event()
         self.result = None
+        self.errno = None
         self.error = None
+        self.trace = None
+        self.type = None
+        self.extra = None
         self.py_exception = None
 
 
@@ -177,7 +155,7 @@ class Job:
         self.job_id = job_id
         # If a job event has been received already then we must set an Event
         # to wait for this job to finish.
-        # Otherwise, we create a new stub for the job with the Event for when
+        # Otherwise we create a new stub for the job with the Event for when
         # the job event arrives to use existing event.
         with client._jobs_lock:
             job = client._jobs[job_id]
@@ -210,7 +188,7 @@ class Job:
         return job['result']
 
 
-class JSONRPCClient:
+class LegacyClient:
     def __init__(self, uri=None, reserved_ports=False, py_exceptions=False, log_py_exceptions=False,
                  call_timeout=undefined, verify_ssl=True):
         """
@@ -227,11 +205,11 @@ class JSONRPCClient:
         self._jobs = defaultdict(dict)
         self._jobs_lock = Lock()
         self._jobs_watching = False
+        self._pings = {}
         self._py_exceptions = py_exceptions
         self._log_py_exceptions = log_py_exceptions
         self._call_timeout = call_timeout
         self._event_callbacks = defaultdict(list)
-        self._set_options_call: Call | None = None
         self._closed = Event()
         self._connected = Event()
         self._connection_error = None
@@ -265,79 +243,85 @@ class JSONRPCClient:
             raise ClientException('Unexpected closure of remote connection', errno.ECONNABORTED)
 
     def _recv(self, message):
-        try:
-            if 'method' in message:
-                params = message['params']
-                match message['method']:
-                    case 'collection_update':
-                        if self._event_callbacks:
-                            if '*' in self._event_callbacks:
-                                for event in self._event_callbacks['*']:
-                                    self._run_callback(event, [params['msg'].upper()], params)
-                            if params['collection'] in self._event_callbacks:
-                                for event in self._event_callbacks[params['collection']]:
-                                    self._run_callback(event, [params['msg'].upper()], params)
-                    case 'notify_unsubscribed':
-                        if params['collection'] in self._event_callbacks:
-                            for event in self._event_callbacks[params['collection']]:
-                                if 'error' in params:
-                                    event['error'] = params['error']['reason'] or params['error']
-                                event['event'].set()
-                    case _:
-                        logger.error('Received unknown notification %r', message['method'])
-            elif 'id' in message:
-                if self._set_options_call and message['id'] == self._set_options_call.id:
-                    if 'error' in message:
+        _id = message.get('id')
+        msg = message.get('msg')
+        if msg == 'connected':
+            self._connected.set()
+        elif msg == 'failed':
+            self._connection_error = 'Unsupported protocol version'
+            self._connected.set()
+        elif msg == 'pong' and _id is not None:
+            ping_event = self._pings.get(_id)
+            if ping_event:
+                ping_event.set()
+        elif _id is not None and msg == 'result':
+            if call := self._calls.get(_id):
+                call.result = message.get('result')
+                if 'error' in message:
+                    call.errno = message['error'].get('error')
+                    call.error = message['error'].get('reason')
+                    call.trace = message['error'].get('trace')
+                    call.type = message['error'].get('type')
+                    call.extra = message['error'].get('extra')
+                    if self._py_exceptions and (py_exception := message['error'].get('py_exception')):
                         try:
-                            self._parse_error(message['error'], self._set_options_call)
-                        except Exception:
-                            logger.error('Unhandled exception in Client._parse_error', exc_info=True)
-                        else:
-                            logger.error('Error setting client options: %r', self._set_options_call.error)
-                    self._connected.set()
-                elif call := self._calls.get(message['id']):
-                    if 'result' in message:
-                        call.result = message['result']
-                    if 'error' in message:
-                        try:
-                            self._parse_error(message['error'], call)
-                        except Exception:
-                            logger.error('Unhandled exception in Client._parse_error', exc_info=True)
-                    call.returned.set()
-                    self._unregister_call(call)
-                else:
-                    logger.error('Received a response for non-registered method call %r', message['id'])
+                            call.py_exception = pickle.loads(b64decode(py_exception))
+                        except Exception as e:
+                            logger.warning("Error unpickling call exception: %r", e)
+                call.returned.set()
+                self._unregister_call(call)
             else:
-                logger.error('Received unknown message %r', message)
-        except Exception:
-            logger.error('Unhandled exception in Client._recv', exc_info=True)
-
-    def _parse_error(self, error: dict, call: Call):
-        code = JSONRPCError(error['code'])
-        if self._py_exceptions and code in [JSONRPCError.INVALID_PARAMS, JSONRPCError.TRUENAS_CALL_ERROR]:
-            data = error['data']
-            call.error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
-            if data.get('py_exception'):
-                try:
-                    call.py_exception = pickle.loads(b64decode(data['py_exception']))
-                except Exception as e:
-                    logger.warning("Error unpickling call exception: %r", e)
-        elif code == JSONRPCError.INVALID_PARAMS:
-            call.error = ValidationErrors(error['data']['extra'])
-        elif code == JSONRPCError.TRUENAS_CALL_ERROR:
-            data = error['data']
-            call.error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
-        else:
-            call.error = ClientException(code.name)
+                if 'error' in message:
+                    for events in self._event_callbacks.values():
+                        for event in events:
+                            if event['id'] == _id:
+                                event['error'] = message['error']
+                                event['ready'].set()
+                                break
+        elif msg in ('added', 'changed', 'removed'):
+            if self._event_callbacks:
+                if '*' in self._event_callbacks:
+                    for event in self._event_callbacks['*']:
+                        self._run_callback(event, [msg.upper()], message)
+                if message['collection'] in self._event_callbacks:
+                    for event in self._event_callbacks[message['collection']]:
+                        self._run_callback(event, [msg.upper()], message)
+        elif msg == 'ready':
+            for subid in message['subs']:
+                # FIXME: We may need to keep a different index for id
+                # so we don't hve to iterate through all.
+                # This is fine for just a dozen subscriptions
+                for events in self._event_callbacks.values():
+                    for event in events:
+                        if subid == event['id']:
+                            event['ready'].set()
+                            break
+        elif msg == 'nosub':
+            if message['collection'] in self._event_callbacks:
+                for event in self._event_callbacks[message['collection']]:
+                    if 'error' in message:
+                        event['error'] = message['error']['reason'] or message['error']['error']
+                    event['ready'].set()
+                    event['event'].set()
 
     def _run_callback(self, event, args, kwargs):
         if event['sync']:
             event['callback'](*args, **kwargs)
         else:
-            Thread(target=event['callback'], args=args, kwargs=kwargs, daemon=True).start()
+            Thread(
+                target=event['callback'], args=args, kwargs=kwargs, daemon=True,
+            ).start()
 
     def on_open(self):
-        self._set_options_call = self.call("core.set_options", {"py_exceptions": self._py_exceptions}, background=True)
+        features = []
+        if self._py_exceptions:
+            features.append('PY_EXCEPTIONS')
+        self._send({
+            'msg': 'connect',
+            'version': '1',
+            'support': ['1'],
+            'features': features,
+        })
 
     def on_close(self, code, reason=None):
         error = f'WebSocket connection closed with code={code!r}, reason={reason!r}'
@@ -347,7 +331,8 @@ class JSONRPCClient:
 
         for call in self._calls.values():
             if not call.returned.is_set():
-                call.error = ClientException(error, errno.ECONNABORTED)
+                call.errno = errno.ECONNABORTED
+                call.error = error
                 call.returned.set()
 
         for job in self._jobs.values():
@@ -384,7 +369,9 @@ class JSONRPCClient:
                 job = self._jobs[job_id]
                 job.update(fields)
                 if callable(job.get('__callback')):
-                    Thread(target=job['__callback'], args=(job,), daemon=True).start()
+                    Thread(
+                        target=job['__callback'], args=(job,), daemon=True,
+                    ).start()
                 if mtype == 'CHANGED' and job['state'] in ('SUCCESS', 'FAILED', 'ABORTED'):
                     # If an Event already exist we just set it to mark it finished.
                     # Otherwise, we create a new Event.
@@ -402,10 +389,7 @@ class JSONRPCClient:
         self._jobs_watching = True
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
-    def call(self, method, *params, background=False, callback=None, job=False, register_call=None, timeout=undefined):
-        if register_call is None:
-            register_call = not background
-
+    def call(self, method, *params, background=False, callback=None, job=False, timeout=undefined):
         if timeout is undefined:
             timeout = self._call_timeout
 
@@ -414,11 +398,10 @@ class JSONRPCClient:
             self._jobs_subscribe()
 
         c = Call(method, params)
-        if register_call:
-            self._register_call(c)
+        self._register_call(c)
         try:
             self._send({
-                'jsonrpc': '2.0',
+                'msg': 'method',
                 'method': c.method,
                 'id': c.id,
                 'params': c.params,
@@ -440,13 +423,14 @@ class JSONRPCClient:
             if not c.returned.wait(timeout):
                 raise CallTimeout()
 
-            if c.error:
+            if c.errno:
                 if c.py_exception:
                     if self._log_py_exceptions:
-                        logger.error(c.error.trace["formatted"])
+                        logger.error(c.trace["formatted"])
                     raise c.py_exception
-                else:
-                    raise c.error
+                if c.trace and c.type == 'VALIDATION':
+                    raise ValidationErrors(c.extra)
+                raise ClientException(c.error, c.errno, c.trace, c.extra)
 
             if job:
                 jobobj = Job(self, c.result, callback=callback)
@@ -461,8 +445,11 @@ class JSONRPCClient:
     @staticmethod
     def event_payload():
         return {
+            'id': str(uuid.uuid4()),
             'callback': None,
             'sync': False,
+            'ready': Event(),
+            'error': None,
             'event': Event(),
         }
 
@@ -473,11 +460,22 @@ class JSONRPCClient:
             'sync': sync,
         })
         self._event_callbacks[name].append(payload)
-        payload['id'] = self.call('core.subscribe', name, timeout=10)
+        self._send({
+            'msg': 'sub',
+            'id': payload['id'],
+            'name': name,
+        })
+        if not payload['ready'].wait(10):
+            raise ValueError('Did not receive a response to the subscription request')
+        if payload['error']:
+            raise ValueError(payload['error'])
         return payload['id']
 
     def unsubscribe(self, id_):
-        self.call('core.unsubscribe', id_)
+        self._send({
+            'msg': 'unsub',
+            'id': id_,
+        })
         for k, events in list(self._event_callbacks.items()):
             events = [v for v in events if v['id'] != id_]
             if events:
@@ -486,148 +484,19 @@ class JSONRPCClient:
                 self._event_callbacks.pop(k)
 
     def ping(self, timeout=10):
-        c = self.call('core.ping', background=True, register_call=True)
-        return self.wait(c, timeout=timeout)
+        _id = str(uuid.uuid4())
+        event = self._pings[_id] = Event()
+        self._send({
+            'msg': 'ping',
+            'id': _id,
+        })
+
+        if not event.wait(timeout):
+            return False
+        return True
 
     def close(self):
         self._ws.close()
         # Wait for websocketclient thread to close
         self._closed.wait(1)
         self._ws = None
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-q', '--quiet', action='store_true')
-    parser.add_argument('-u', '--uri')
-    parser.add_argument('-U', '--username')
-    parser.add_argument('-P', '--password')
-    parser.add_argument('-K', '--api-key')
-    parser.add_argument('-t', '--timeout', type=int)
-
-    subparsers = parser.add_subparsers(help='sub-command help', dest='name')
-    iparser = subparsers.add_parser('call', help='Call method')
-    iparser.add_argument(
-        '-j', '--job', help='Call a long running job', action='store_true'
-    )
-    iparser.add_argument(
-        '-jp', '--job-print',
-        help='Method to print job progress', type=str, choices=(
-            'progressbar', 'description',
-        ), default='progressbar',
-    )
-    iparser.add_argument('method', nargs='+')
-    subparsers.add_parser('ping', help='Ping')
-    subparsers.add_parser('waitready', help='Wait server')
-    iparser = subparsers.add_parser('subscribe', help='Subscribe to event')
-    iparser.add_argument('event')
-    iparser.add_argument('-n', '--number', type=int, help='Number of events to wait before exit')
-    iparser.add_argument('-t', '--timeout', type=int)
-    args = parser.parse_args()
-
-    def from_json(args):
-        for i in args:
-            try:
-                yield json.loads(i)
-            except Exception:
-                yield i
-
-    if args.name == 'call':
-        try:
-            with Client(uri=args.uri) as c:
-                try:
-                    if args.username and args.password:
-                        if not c.call('auth.login', args.username, args.password):
-                            raise ValueError('Invalid username or password')
-                    elif args.api_key:
-                        if not c.call('auth.login_with_api_key', args.api_key):
-                            raise ValueError('Invalid API key')
-                except Exception as e:
-                    print("Failed to login: ", e)
-                    sys.exit(0)
-                try:
-                    kwargs = {}
-                    if args.timeout:
-                        kwargs['timeout'] = args.timeout
-                    if args.job:
-                        if args.job_print == 'progressbar':
-                            # display the job progress and status message while we wait
-
-                            def callback(progress_bar, job):
-                                try:
-                                    progress_bar.update(
-                                        job['progress']['percent'], job['progress']['description']
-                                    )
-                                except Exception as e:
-                                    print(f'Failed to update progress bar: {e!s}', file=sys.stderr)
-
-                            with ProgressBar() as progress_bar:
-                                kwargs.update({
-                                    'job': True,
-                                    'callback': lambda job: callback(progress_bar, job)
-                                })
-                                rv = c.call(args.method[0], *list(from_json(args.method[1:])), **kwargs)
-                                progress_bar.finish()
-                        else:
-                            lastdesc = ''
-
-                            def callback(job):
-                                nonlocal lastdesc
-                                desc = job['progress']['description']
-                                if desc is not None and desc != lastdesc:
-                                    print(desc, file=sys.stderr)
-                                lastdesc = desc
-
-                            kwargs.update({
-                                'job': True,
-                                'callback': callback,
-                            })
-                            rv = c.call(args.method[0], *list(from_json(args.method[1:])), **kwargs)
-                    else:
-                        rv = c.call(args.method[0], *list(from_json(args.method[1:])), **kwargs)
-                    if isinstance(rv, (int, str)):
-                        print(rv)
-                    else:
-                        print(json.dumps(rv))
-                except ClientException as e:
-                    if not args.quiet:
-                        if e.error:
-                            print(e.error, file=sys.stderr)
-                        if e.trace:
-                            print(e.trace['formatted'], file=sys.stderr)
-                        if e.extra:
-                            pprint.pprint(e.extra, stream=sys.stderr)
-                    sys.exit(1)
-        except (FileNotFoundError, ConnectionRefusedError):
-            print('Failed to run middleware call. Daemon not running?', file=sys.stderr)
-            sys.exit(1)
-    elif args.name == 'ping':
-        with Client(uri=args.uri) as c:
-            if not c.ping():
-                sys.exit(1)
-    elif args.name == 'subscribe':
-        with Client(uri=args.uri) as c:
-
-            subscribe_payload = c.event_payload()
-            event = subscribe_payload['event']
-            number = 0
-
-            def cb(mtype, **message):
-                nonlocal number
-                print(json.dumps(message))
-                number += 1
-                if args.number and number >= args.number:
-                    event.set()
-
-            c.subscribe(args.event, cb, subscribe_payload)
-
-            if not event.wait(timeout=args.timeout):
-                sys.exit(1)
-
-            if subscribe_payload['error']:
-                raise ValueError(subscribe_payload['error'])
-            sys.exit(0)
-
-
-if __name__ == '__main__':
-    main()
