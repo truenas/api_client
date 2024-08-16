@@ -3,7 +3,6 @@ from base64 import b64decode
 from collections import defaultdict
 import errno
 import logging
-import os
 import pickle
 import pprint
 import random
@@ -17,7 +16,7 @@ import uuid
 import ssl
 from websocket import WebSocketApp
 from websocket._abnf import STATUS_NORMAL
-from websocket._exceptions import WebSocketConnectionClosedException
+from websocket._exceptions import WebSocketException, WebSocketConnectionClosedException
 from websocket._http import connect, proxy_info
 from websocket._socket import sock_opt
 
@@ -155,6 +154,7 @@ class WSClient:
 
     def _on_error(self, app, e):
         logger.warning("Websocket client error: %r", e)
+        self.client._ws_connection_error = e
 
     def _on_close(self, app, code, reason):
         self.client.on_close(code, reason)
@@ -235,6 +235,7 @@ class JSONRPCClient:
         self._closed = Event()
         self._connected = Event()
         self._connection_error = None
+        self._ws_connection_error = None
         self._ws = WSClient(
             uri,
             client=self,
@@ -245,6 +246,9 @@ class JSONRPCClient:
         self._connected.wait(10)
         if not self._connected.is_set():
             raise ClientException('Failed connection handshake')
+        if self._ws_connection_error is not None:
+            if isinstance(self._ws_connection_error, WebSocketException):
+                raise self._ws_connection_error
         if self._connection_error is not None:
             raise ClientException(self._connection_error)
 
