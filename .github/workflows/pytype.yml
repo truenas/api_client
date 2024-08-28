@@ -19,7 +19,7 @@ jobs:
         python-version: 3.11
 
     - name: Install Dependencies
-      run: pip install networkx>=2 pytype
+      run: pip install pytype .
 
     - name: Type-Check
       run: pytype -j auto .
