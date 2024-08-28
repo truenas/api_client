@@ -54,7 +54,7 @@ from websocket._socket import sock_opt
 
 from . import ejson as json
 from .config import CALL_TIMEOUT
-from .exc import ReserveFDException, ClientException, ValidationErrors, CallTimeout
+from .exc import ReserveFDException, ClientException, ErrnoMixin, ValidationErrors, CallTimeout
 from .legacy import LegacyClient
 from .jsonrpc import CollectionUpdateParams, ErrorObj, JobFields, JSONRPCError, JSONRPCMessage, TruenasError
 from .utils import MIDDLEWARE_RUN_DIR, ProgressBar, undefined, UndefinedType
