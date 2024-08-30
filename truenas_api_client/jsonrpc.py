@@ -4,7 +4,7 @@ https://www.jsonrpc.org/specification
 
 """
 import enum
-from typing import Any, Literal, NamedTuple, NotRequired, TypeAlias, TypedDict
+from typing import Any, Literal, NamedTuple, TypeAlias, TypedDict
 
 
 class JSONRPCError(enum.Enum):
@@ -49,9 +49,9 @@ class JobFields(TypedDict):
 class CollectionUpdateParams(TypedDict):
     msg: str
     collection: str
-    id: NotRequired[Any]
-    fields: NotRequired[JobFields]
-    extra: NotRequired[dict]
+    id: Any
+    fields: JobFields
+    extra: dict
 
 
 class CollectionUpdate(TypedDict):
@@ -62,7 +62,7 @@ class CollectionUpdate(TypedDict):
 
 TruenasTraceback = TypedDict('TruenasTraceback', {
     'class': str,
-    'frames': NotRequired[list[dict[str, Any]]],
+    'frames': list[dict[str, Any]],
     'formatted': str,
     'repr': str,
 })
@@ -75,7 +75,7 @@ class TruenasError(TypedDict):
     reason: str
     trace: TruenasTraceback | None
     extra: list[ErrorExtra]
-    py_exception: NotRequired[str]
+    py_exception: str
 
 
 class NotifyUnsubscribedParams(TypedDict):

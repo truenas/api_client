@@ -9,6 +9,7 @@ setup(
     install_requires=[
         "websocket-client",
     ],
+    python_requires=">=3.10",
     entry_points={
         "console_scripts": [
             "midclt = truenas_api_client:main",
