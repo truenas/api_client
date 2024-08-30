@@ -1,3 +1,5 @@
+"""The websocket client prior to implementing JSONRPC-2.0 protocol. Used for backwards compatibility."""
+
 from base64 import b64decode
 from collections import defaultdict
 import errno
@@ -20,7 +22,7 @@ from websocket._socket import sock_opt
 from . import ejson as json
 from .config import CALL_TIMEOUT
 from .exc import ReserveFDException, ClientException, ValidationErrors, CallTimeout
-from .utils import MIDDLEWARE_RUN_DIR, undefined
+from .utils import MIDDLEWARE_RUN_DIR, undefined, UndefinedType
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +192,7 @@ class Job:
 
 class LegacyClient:
     def __init__(self, uri=None, reserved_ports=False, py_exceptions=False, log_py_exceptions=False,
-                 call_timeout=undefined, verify_ssl=True):
+                 call_timeout: float | UndefinedType=undefined, verify_ssl=True):
         """
         Arguments:
            :reserved_ports(bool): should the local socket used a reserved port
