@@ -385,12 +385,10 @@ class _Payload(_PartialPayload, total=False):
         event: `Event` that is set when the subscription should end.
         error: Information included in the Notification if the subscription ended in error.
         id: Random UUID assigned by `core.subscribe`.
-        ready: For backwards compatibility with `LegacyClient`.
 
     """
     error: str | TruenasError | None
     id: str
-    ready: Event
 
 
 class JSONRPCClient:
