@@ -41,7 +41,7 @@ import socket
 import sys
 from threading import Event, Lock, Thread
 import time
-from typing import Any, Literal, NotRequired, Protocol, TypeAlias, TypedDict
+from typing import Any, Literal, Protocol, TypeAlias, TypedDict
 import urllib.parse
 import uuid
 
@@ -350,6 +350,7 @@ class Job:
                 job['error'],
                 trace={
                     'class': job['exc_info']['type'],
+                    'frames': [],
                     'formatted': job['exception'],
                     'repr': job['exc_info'].get('repr', job['exception'].splitlines()[-1]),
                 },
@@ -363,7 +364,18 @@ class _EventCallbackProtocol(Protocol):
     def __call__(self, mtype: str, **message: Any) -> None: ...
 
 
-class _Payload(TypedDict):
+class _PartialPayload(TypedDict):
+    """Type returned by `JSONRPCClient.event_payload`.
+
+    Contains the required fields of `_Payload`.
+
+    """
+    callback: _EventCallbackProtocol | None
+    sync: bool
+    event: Event
+
+
+class _Payload(_PartialPayload, total=False):
     """Contains data for managing a subscription.
 
     Attributes:
@@ -373,15 +385,10 @@ class _Payload(TypedDict):
         event: `Event` that is set when the subscription should end.
         error: Information included in the Notification if the subscription ended in error.
         id: Random UUID assigned by `core.subscribe`.
-        ready: For backwards compatibility with `LegacyClient`.
 
     """
-    callback: _EventCallbackProtocol | None
-    sync: bool
-    event: Event
-    error: NotRequired[str | TruenasError | None]
-    id: NotRequired[str]
-    ready: NotRequired[Event]
+    error: str | TruenasError | None
+    id: str
 
 
 class JSONRPCClient:

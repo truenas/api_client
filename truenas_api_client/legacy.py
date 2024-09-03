@@ -182,6 +182,7 @@ class Job:
                 job['error'],
                 trace={
                     'class': job['exc_info']['type'],
+                    'frames': [],
                     'formatted': job['exception'],
                     'repr': job['exc_info'].get('repr', job['exception'].splitlines()[-1]),
                 },
