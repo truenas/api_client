@@ -17,6 +17,7 @@ Example::
 """
 import calendar
 from datetime import date, datetime, time, timedelta, timezone
+from ipaddress import IPv4Interface, IPv6Interface
 import json
 
 
@@ -49,6 +50,8 @@ class JSONEncoder(json.JSONEncoder):
             return {'$time': str(obj)}
         elif isinstance(obj, set):
             return {'$set': list(obj)}
+        elif isinstance(obj, (IPv4Interface, IPv6Interface)):
+            return str(obj)
         return super(JSONEncoder, self).default(obj)
 
 
