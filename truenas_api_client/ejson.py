@@ -17,6 +17,7 @@ Example::
 """
 import calendar
 from datetime import date, datetime, time, timedelta, timezone
+from ipaddress import IPv4Interface, IPv6Interface
 import json
 
 
@@ -49,6 +50,10 @@ class JSONEncoder(json.JSONEncoder):
             return {'$time': str(obj)}
         elif isinstance(obj, set):
             return {'$set': list(obj)}
+        elif isinstance(obj, IPv4Interface):
+            return {'$ipv4_interface': str(obj)}
+        elif isinstance(obj, IPv6Interface):
+            return {'$ipv6_interface': str(obj)}
         return super(JSONEncoder, self).default(obj)
 
 
@@ -66,6 +71,10 @@ def object_hook(obj: dict):
             return time(*[int(i) for i in obj['$time'].split(':')[:4]])  # type: ignore
         if '$set' in obj:
             return set(obj['$set'])
+        if '$ipv4_interface' in obj:
+            return IPv4Interface(obj['$ipv4_interface'])
+        if '$ipv6_interface' in obj:
+            return IPv6Interface(obj['$ipv6_interface'])
     if obj_len == 2 and '$type' in obj and '$value' in obj:
         if obj['$type'] == 'date':
             return date(*[int(i) for i in obj['$value'].split('-')])
