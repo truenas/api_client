@@ -63,8 +63,19 @@ from .utils import MIDDLEWARE_RUN_DIR, ProgressBar, undefined, UndefinedType, se
 logger = logging.getLogger(__name__)
 
 
+UNIX_SOCKET_PREFIX = "ws+unix://"
+DUMMY_HOSTNAME = "ws://localhost/api/current"  # Advised by official docs to use dummy hostname
+
+
 class Client:
     """Implicit wrapper of either a `JSONRPCClient` or a `LegacyClient`."""
+
+    def uri_check(self, uri: str | None, py_exceptions: bool):
+        # We pickle_load when handling py_exceptions, reduce risk of MITM on client causing a pickle.load
+        # of malicious information by only allowing this over unix domain socket.
+        if uri and py_exceptions and not uri.startswith(UNIX_SOCKET_PREFIX):
+            raise ClientException('py_exceptions are only allowed for connections to unix domain socket')
+
 
     def __init__(self, uri: str | None=None, reserved_ports=False, private_methods=False, py_exceptions=False,
                  log_py_exceptions=False, call_timeout: float | UndefinedType=undefined, verify_ssl=True):
@@ -91,6 +102,8 @@ class Client:
             client_class = LegacyClient
         else:
             client_class = JSONRPCClient
+
+        self.uri_check(uri, py_exceptions)
 
         self.__client = client_class(uri, reserved_ports, private_methods, py_exceptions, log_py_exceptions,
                                      call_timeout, verify_ssl)
@@ -136,11 +149,10 @@ class WSClient:
             Exception: The `socket` failed to connect.
 
         """
-        unix_socket_prefix = "ws+unix://"
-        if self.url.startswith(unix_socket_prefix):
+        if self.url.startswith(UNIX_SOCKET_PREFIX):
             self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.socket.connect(self.url.removeprefix(unix_socket_prefix))
-            app_url = "ws://localhost/api/current"  # Adviced by official docs to use dummy hostname
+            self.socket.connect(self.url.removeprefix(UNIX_SOCKET_PREFIX))
+            app_url = DUMMY_HOSTNAME
         elif self.reserved_ports:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.settimeout(10)
@@ -151,7 +163,7 @@ class WSClient:
             except Exception:
                 self.socket.close()
                 raise
-            app_url = "ws://localhost/api/current"  # Adviced by official docs to use dummy hostname
+            app_url = DUMMY_HOSTNAME
         else:
             sockopt = sock_opt(None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE})
             sockopt.timeout = 10
@@ -219,7 +231,7 @@ class WSClient:
 
         """
         # TCP keepalive settings don't apply to local unix sockets
-        if 'ws+unix' not in self.url:
+        if UNIX_SOCKET_PREFIX not in self.url:
             set_socket_options(self.socket)
 
         # if we're able to connect put socket in blocking mode
@@ -406,7 +418,7 @@ class JSONRPCClient:
 
         """
         if uri is None:
-            uri = f'ws+unix://{MIDDLEWARE_RUN_DIR}/middlewared.sock'
+            uri = f'{UNIX_SOCKET_PREFIX}{MIDDLEWARE_RUN_DIR}/middlewared.sock'
 
         if call_timeout is undefined:
             call_timeout = CALL_TIMEOUT
