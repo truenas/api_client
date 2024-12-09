@@ -532,7 +532,25 @@ class JSONRPCClient:
                     call.returned.set()
                     self._unregister_call(call)
                 else:
-                    logger.error('Received a response for non-registered method call %r', message['id'])
+                    if 'result' in message:
+                        logger.error('Received a success response for non-registered method call %r', message['id'])
+                    elif 'error' in message:
+                        try:
+                            error = self._parse_error_and_unpickle_exception(message['error'])[0]
+                        except Exception:
+                            logger.error('Unhandled exception in JSONRPCClient._parse_error', exc_info=True)
+                            error = None
+
+                        if message['id'] is None:
+                            logger.error('Received a global connection error: %r', error)
+                        else:
+                            logger.error('Received an error response for non-registered method call %r: %r',
+                                         message['id'], error)
+
+                        if error:
+                            self._broadcast_error(error)
+                    else:
+                        logger.error('Received a response for non-registered method call %r', message['id'])
             else:
                 logger.error('Received unknown message %r', message)
         except Exception:
@@ -544,24 +562,35 @@ class JSONRPCClient:
         Args:
             error: The JSON object received in an error Response.
             call: The associated `Call` object with which to store the `ClientException`.
+        """
+        call.error, call.py_exception = self._parse_error_and_unpickle_exception(error)
 
+    def _parse_error_and_unpickle_exception(self, error: ErrorObj) -> tuple[ClientException, Exception | None]:
+        """Convert an error received from the server into a `ClientException` and, possibly, unpickle original
+        exception.
+
+        Args:
+            error: The JSON object received in an error Response.
         """
         code = JSONRPCError(error['code'])
+        py_exception = None
         if self._py_exceptions and code in [JSONRPCError.INVALID_PARAMS, JSONRPCError.TRUENAS_CALL_ERROR]:
             data = error['data']
-            call.error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
+            error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
             if 'py_exception' in data:
                 try:
-                    call.py_exception = pickle.loads(b64decode(data['py_exception']))
+                    py_exception = pickle.loads(b64decode(data['py_exception']))
                 except Exception as e:
                     logger.warning("Error unpickling call exception: %r", e)
         elif code == JSONRPCError.INVALID_PARAMS:
-            call.error = ValidationErrors(error['data']['extra'])
+            error = ValidationErrors(error['data']['extra'])
         elif code == JSONRPCError.TRUENAS_CALL_ERROR:
             data = error['data']
-            call.error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
+            error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
         else:
-            call.error = ClientException(code.name)
+            error = ClientException(error.get('message') or code.name)
+
+        return error, py_exception
 
     def _run_callback(self, event: _Payload, args: Iterable[str], kwargs: CollectionUpdateParams):
         """Call the passed `_Payload`'s callback function.
@@ -585,7 +614,7 @@ class JSONRPCClient:
         """Make an API call to `core.set_options` to configure how middlewared sends its responses."""
         self._set_options_call = self.call("core.set_options", {"py_exceptions": self._py_exceptions}, background=True)
 
-    def on_close(self, code: int, reason: str | None=None):
+    def on_close(self, code: int, reason: str | None = None):
         """Close this `JSONRPCClient` in response to the `WebSocketApp` closing.
 
         End all unanswered calls and unreturned jobs with an error.
@@ -600,9 +629,14 @@ class JSONRPCClient:
         self._connection_error = error
         self._connected.set()
 
+        self._broadcast_error(ClientException(error, errno.ECONNABORTED))
+
+        self._closed.set()
+
+    def _broadcast_error(self, error: ClientException):
         for call in self._calls.values():
             if not call.returned.is_set():
-                call.error = ClientException(error, errno.ECONNABORTED)
+                call.error = error
                 call.returned.set()
 
         for job in self._jobs.values():
@@ -611,16 +645,15 @@ class JSONRPCClient:
                 event = job['__ready'] = Event()
 
             if not event.is_set():
-                job['error'] = error
-                job['exception'] = error
+                error_repr = repr(error)
+                job['error'] = error_repr
+                job['exception'] = error_repr
                 job['exc_info'] = {
                     'type': 'Exception',
-                    'repr': error,
+                    'repr': error_repr,
                     'extra': None,
                 }
                 event.set()
-
-        self._closed.set()
 
     def _register_call(self, call: Call):
         """Save a `Call` and index it by its id."""
