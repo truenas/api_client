@@ -21,6 +21,10 @@ from ipaddress import IPv4Interface, IPv6Interface
 import json
 
 
+class EJSONDecodeError(ValueError):
+    pass
+
+
 class JSONEncoder(json.JSONEncoder):
     """Custom JSON encoder that extends the default encoder to handle more types.
 
@@ -63,21 +67,27 @@ def object_hook(obj: dict):
     Passed as a kwarg to a JSON deserialization function like `json.dump()`.
 
     """
-    obj_len = len(obj)
-    if obj_len == 1:
-        if '$date' in obj:
-            return datetime.fromtimestamp(obj['$date'] / 1000, tz=timezone.utc) + timedelta(milliseconds=obj['$date'] % 1000)
-        if '$time' in obj:
-            return time(*[int(i) for i in obj['$time'].split(':')[:4]])  # type: ignore
-        if '$set' in obj:
-            return set(obj['$set'])
-        if '$ipv4_interface' in obj:
-            return IPv4Interface(obj['$ipv4_interface'])
-        if '$ipv6_interface' in obj:
-            return IPv6Interface(obj['$ipv6_interface'])
-    if obj_len == 2 and '$type' in obj and '$value' in obj:
-        if obj['$type'] == 'date':
-            return date(*[int(i) for i in obj['$value'].split('-')])
+    error_key = '<unknown>'
+    try:
+        obj_len = len(obj)
+        if obj_len == 1:
+            error_key = list(obj.keys())[0]
+            if '$date' in obj:
+                return datetime.fromtimestamp(obj['$date'] / 1000, tz=timezone.utc) + timedelta(milliseconds=obj['$date'] % 1000)
+            if '$time' in obj:
+                return time(*[int(i) for i in obj['$time'].split(':')[:4]])  # type: ignore
+            if '$set' in obj:
+                return set(obj['$set'])
+            if '$ipv4_interface' in obj:
+                return IPv4Interface(obj['$ipv4_interface'])
+            if '$ipv6_interface' in obj:
+                return IPv6Interface(obj['$ipv6_interface'])
+        if obj_len == 2 and '$type' in obj and '$value' in obj:
+            error_key = obj['$type']
+            if obj['$type'] == 'date':
+                return date(*[int(i) for i in obj['$value'].split('-')])
+    except Exception as e:
+        raise EJSONDecodeError(f'Error parsing {error_key}: {e}')
     return obj
 
 
