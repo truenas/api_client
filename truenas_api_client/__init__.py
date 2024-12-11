@@ -32,6 +32,7 @@ import argparse
 from base64 import b64decode
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from getpass import getpass
 import errno
 import logging
 import pickle
@@ -915,6 +916,9 @@ def main():
     iparser.add_argument('-n', '--number', type=int, help='Number of events to wait before exit')
     iparser.add_argument('-t', '--timeout', type=int)
     args = parser.parse_args()
+
+    if args.username and not args.password:
+        args.password = getpass()
 
     def from_json(args):
         for i in args:
