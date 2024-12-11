@@ -1,12 +1,12 @@
 Source: truenas-api-client
 Section: contrib/python
 Priority: optional
-Maintainer: Vladimir Vinogradenko <vladimirv@ixsystems.com>
+Maintainer: iX Engineering <dev@ixsystems.net>
 Build-Depends: debhelper-compat (= 12),
                dh-python,
                python3-all,
                python3-setuptools,
-               python3-websocket
+               python3-websocket (>= 1.3.2)
 Standards-Version: 4.4.0
 Homepage: https://github.com/truenas/api_client
 
