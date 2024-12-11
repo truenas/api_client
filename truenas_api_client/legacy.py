@@ -22,10 +22,9 @@ from websocket._socket import sock_opt
 from . import ejson as json
 from .config import CALL_TIMEOUT
 from .exc import ReserveFDException, ClientException, ValidationErrors, CallTimeout
-from .utils import MIDDLEWARE_RUN_DIR, undefined, UndefinedType
+from .utils import MIDDLEWARE_RUN_DIR, undefined, UndefinedType, set_socket_options
 
 logger = logging.getLogger(__name__)
-
 
 class WSClient:
     def __init__(self, url, *, client, reserved_ports=False, verify_ssl=True):
@@ -104,21 +103,7 @@ class WSClient:
     def _on_open(self, app):
         # TCP keepalive settings don't apply to local unix sockets
         if 'ws+unix' not in self.url:
-            # enable keepalives on the socket
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-
-            # If the other node panics then the socket will
-            # remain open and we'll have to wait until the
-            # TCP timeout value expires (60 seconds default).
-            # To account for this:
-            #   1. if the socket is idle for 1 seconds
-            #   2. send a keepalive packet every 1 second
-            #   3. for a maximum up to 5 times
-            #
-            # after 5 times (5 seconds of no response), the socket will be closed
-            self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 1)
-            self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 1)
-            self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+            set_socket_options(self.socket)
 
         # if we're able to connect put socket in blocking mode
         # until all operations complete or error is raised
