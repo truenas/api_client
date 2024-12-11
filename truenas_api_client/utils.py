@@ -8,6 +8,7 @@ Attributes:
     undefined: A dummy object similar in purpose to `None` that indicates an unset variable.
 
 """
+import socket
 import sys
 
 from typing import Any, final, Mapping
@@ -131,3 +132,29 @@ class ProgressBar(object):
         if self.used_flag:
             self.draw()
             self.write_stream.write('\n')
+
+
+def set_socket_options(socobj):
+    plat = sys.platform
+    if plat not in ('linux', 'freebsd', 'darwin'):
+        raise RuntimeError('Unsupported platform')
+
+    # enable keepalives on the socket
+    socobj.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+    # If the other node panics then the socket will
+    # remain open and we'll have to wait until the
+    # TCP timeout value expires (60 seconds default).
+    # To account for this:
+    #   1. if the socket is idle for 1 seconds
+    #   2. send a keepalive packet every 1 second
+    #   3. for a maximum up to 5 times
+    #
+    # after 5 times (5 seconds of no response), the socket will be closed
+    if plat in ('linux', 'freebsd'):
+        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 1)
+    else:
+        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, 1)
+
+    socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 1)
+    socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
