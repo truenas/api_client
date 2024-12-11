@@ -136,7 +136,7 @@ class ProgressBar(object):
 
 def set_socket_options(socobj):
     plat = sys.platform
-    if plat not in ('linux', 'freebsd', 'darwin'):
+    if plat not in ('win32', 'linux', 'freebsd', 'darwin'):
         raise RuntimeError('Unsupported platform')
 
     # enable keepalives on the socket
@@ -151,10 +151,11 @@ def set_socket_options(socobj):
     #   3. for a maximum up to 5 times
     #
     # after 5 times (5 seconds of no response), the socket will be closed
-    if plat in ('linux', 'freebsd'):
-        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 1)
+    if plat in ('linux', 'freebsd', 'win32'):
+        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 1)  # pytype: disable=module-attr
+
     else:
-        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, 1)
+        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, 1)  # pytype: disable=module-attr
 
     socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 1)
     socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
