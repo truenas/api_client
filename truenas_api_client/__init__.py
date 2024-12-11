@@ -66,8 +66,8 @@ logger = logging.getLogger(__name__)
 class Client:
     """Implicit wrapper of either a `JSONRPCClient` or a `LegacyClient`."""
 
-    def __init__(self, uri: str | None=None, reserved_ports=False, py_exceptions=False, log_py_exceptions=False,
-                 call_timeout: float | UndefinedType=undefined, verify_ssl=True):
+    def __init__(self, uri: str | None=None, reserved_ports=False, private_methods=False, py_exceptions=False,
+                 log_py_exceptions=False, call_timeout: float | UndefinedType=undefined, verify_ssl=True):
         """Initialize either a `JSONRPCClient` or a `LegacyClient`.
 
         Use `JSONRPCClient` unless `uri` ends with '/websocket'.
@@ -75,6 +75,7 @@ class Client:
         Args:
             uri: The address to connect to. Defaults to the local middlewared socket.
             reserved_ports: `True` if the local socket should use a reserved port.
+            private_methods: `True` if calling private methods should be allowed
             py_exceptions: `True` if the server should include exception objects in
                 `message['error']['data']['py_exception']`.
             log_py_exceptions: `True` if exception tracebacks from API calls should be logged.
@@ -91,7 +92,8 @@ class Client:
         else:
             client_class = JSONRPCClient
 
-        self.__client = client_class(uri, reserved_ports, py_exceptions, log_py_exceptions, call_timeout, verify_ssl)
+        self.__client = client_class(uri, reserved_ports, private_methods, py_exceptions, log_py_exceptions,
+                                     call_timeout, verify_ssl)
 
     def __getattr__(self, item):
         return getattr(self.__client, item)
@@ -384,13 +386,14 @@ class JSONRPCClient:
     Keeps track of the calls made, jobs submitted, and callbacks. Maintains a websocket connection using a `WSClient`.
 
     """
-    def __init__(self, uri: str | None=None, reserved_ports=False, py_exceptions=False, log_py_exceptions=False,
-                 call_timeout: float | UndefinedType=undefined, verify_ssl=True):
+    def __init__(self, uri: str | None = None, reserved_ports=False, private_methods=False, py_exceptions=False,
+                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True):
         """Initialize a `JSONRPCClient`.
 
         Args:
             uri: The address to connect to. Defaults to the local middlewared socket.
             reserved_ports: `True` if the local socket should use a reserved port.
+            private_methods: `True` if calling private methods should be allowed
             py_exceptions: `True` if the server should include exception objects in
                 `message['error']['data']['py_exception']`.
             log_py_exceptions: `True` if exception tracebacks from API calls should be logged.
@@ -412,6 +415,7 @@ class JSONRPCClient:
         self._jobs: defaultdict[str, _JobDict] = defaultdict(dict)  # type: ignore
         self._jobs_lock = Lock()
         self._jobs_watching = False
+        self._private_methods = private_methods
         self._py_exceptions = py_exceptions
         self._log_py_exceptions = log_py_exceptions
         self._call_timeout = call_timeout
@@ -599,7 +603,10 @@ class JSONRPCClient:
 
     def on_open(self):
         """Make an API call to `core.set_options` to configure how middlewared sends its responses."""
-        self._set_options_call = self.call("core.set_options", {"py_exceptions": self._py_exceptions}, background=True)
+        self._set_options_call = self.call("core.set_options", {
+            "private_methods": self._private_methods,
+            "py_exceptions": self._py_exceptions,
+        }, background=True)
 
     def on_close(self, code: int, reason: str | None = None):
         """Close this `JSONRPCClient` in response to the `WebSocketApp` closing.

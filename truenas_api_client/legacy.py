@@ -177,8 +177,8 @@ class Job:
 
 
 class LegacyClient:
-    def __init__(self, uri=None, reserved_ports=False, py_exceptions=False, log_py_exceptions=False,
-                 call_timeout: float | UndefinedType=undefined, verify_ssl=True):
+    def __init__(self, uri=None, reserved_ports=False, private_methods=False, py_exceptions=False,
+                 log_py_exceptions=False, call_timeout: float | UndefinedType=undefined, verify_ssl=True):
         """
         Arguments:
            :reserved_ports(bool): should the local socket used a reserved port
