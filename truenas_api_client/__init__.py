@@ -520,7 +520,7 @@ class JSONRPCClient:
                     self._unregister_call(call)
                 else:
                     if 'result' in message:
-                        logger.error('Received a success response for non-registered method call %r', message['id'])
+                        logger.error('Received a success response for non-registered method call %r: %r', message['id'], message)
                     elif 'error' in message:
                         try:
                             error = self._parse_error_and_unpickle_exception(message['error'])[0]
