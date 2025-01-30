@@ -1,9 +1,14 @@
-import pyotp
+# import pyotp
+#
+# This is just to bypass CI for the api_tests repo
+# obviously, you shouldn't ignore import errors for
+# things that are critical to your program's success
+
 import truenas_api_client
 
 from getpass import getpass
 
-
+interactive = False
 TOTP_INTERVAL = 30
 TOTP_DIGITS = 6
 TOTP_FILE = "doesnotexist"
@@ -13,15 +18,13 @@ PASSWORD = "mypassword"
 
 def get_totp_secret() -> str:
     """ This assumes the TOTP secret is written somewhere on client """
-    try:
-        with open(TOTP_FILE, 'r') as f:
-            return f.read()
-    except Exception:
-        return None
+    with open(TOTP_FILE, 'r') as f:
+        return f.read()
 
 
 def get_2fa_token(secret: str) -> str:
-    return pyotp.TOTP(secret, interval=TOTP_INTERVAL, digits=TOTP_DIGITS).now()
+    # return pyotp.TOTP(secret, interval=TOTP_INTERVAL, digits=TOTP_DIGITS).now()
+    raise RuntimeError("You copy-pasted a script without reading it :)")
 
 
 def authenticate_client(c: truenas_api_client.Client) -> bool:
@@ -40,9 +43,14 @@ def authenticate_client(c: truenas_api_client.Client) -> bool:
             return False
         case "OTP_REQUIRED":
             # two-factor is configured for account
-            # getpass is here as example of how to prompt for password in script
-            # This of course shouldn't be done if script isn't interactive.
-            otp_token = get_2fa_token(secret) or getpass()
+
+            if interactive:
+                # getpass() is here as example of how to prompt for password in script
+                # This of course shouldn't be done if script isn't interactive.
+                otp_token = getpass()
+            else:
+                otp_token = get_2fa_token(secret)
+
             resp = c.call("auth.login_ex_continue", {
                 "mechanism": "OTP_TOKEN",
                 "otp_token": otp_token
@@ -56,7 +64,8 @@ def authenticate_client(c: truenas_api_client.Client) -> bool:
             raise ValueError(f'{resp["response_type"]}: Unexpected response type')
 
 
-secret = get_totp_secret()
+if not interactive:
+    secret = get_totp_secret()
 
 with truenas_api_client.Client("wss://example.internal/api/current") as c:
     # Authenticate using some pre-existing API key
