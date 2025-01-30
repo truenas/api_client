@@ -22,7 +22,7 @@ The TrueNAS API enforces strict security checking and auditing in place to detec
 
 Connections to the API are currently limited to 20 Auth attempts AND/OR a single API endpoint request in a 60 second period (Subject to future change). Exceeding this limit will result in a 10 minute rate limit cooldown before API connections can be re-established. 
 
-Developers are highly recommended to architect their tools in a way that uses a single persisant websocket connection which remains connected for subsquent API calls to be issued without a re-auth.
+Developers are highly recommended to architect their tools in a way that uses a single persistent websocket connection that remains connected for subsequent API calls to be issued without a re-auth.
 
 
 ## Getting Started
