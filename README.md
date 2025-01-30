@@ -24,7 +24,7 @@ Connections to the API are currently limited to 20 Auth attempts AND/OR unauthen
 
 Developers are highly recommended to architect their tools in a way that uses a single persistent websocket connection that remains connected for subsequent API calls to be issued without a re-auth.
 
-Developers needing to issue large quantities of subsquent operations (Example: Massive bulk dataset creations) are highly encouraged to leverage the `core.bulk` endpoint for queuing actions. 
+Developers needing to issue large quantities of subsequent operations (Example: Massive bulk dataset creations) are highly encouraged to leverage the `core.bulk` endpoint for queuing actions. 
 
 ## Getting Started
 
