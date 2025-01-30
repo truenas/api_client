@@ -6,7 +6,7 @@ API_USERNAME = "api_user"
 API_KEY = "some api key"
 
 
-with Client("wss://example.internal") as c:
+with Client("wss://example.internal/api/current") as c:
     # Authenticate using some pre-existing API key
     resp = c.call("auth.login_ex", {
         "mechanism": "API_KEY_PLAIN",
