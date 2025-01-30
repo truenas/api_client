@@ -18,13 +18,13 @@ By default, communication facilitated by the API between the client and middlewa
 
 **NOTE:**
 
-The TrueNAS API enforces strict security checking and auditing in place to detect and prevent brute force or malicious API behaivor. 
+The TrueNAS API enforces strict security checking and auditing in place to detect and prevent brute force or malicious API behavior. 
 
-Connections to the API are currently limited to 20 Auth attempts AND/OR unauthenticated API requests in a 60 second period (Subject to future change). Exceeding this limit will result in a 10 minute rate limit cooldown before API connections can be re-established. 
+Connections to the API are currently limited to 20 Auth attempts AND/OR unauthenticated API requests in a 60 second period (subject to future change). Exceeding this limit results in a 10-minute rate limit cooldown before API connections can be re-established. 
 
 Developers are highly recommended to architect their tools in a way that uses a single persistent websocket connection that remains connected for subsequent API calls to be issued without a re-auth.
 
-Developers needing to issue large quantities of subsequent operations (Example: Massive bulk dataset creations) are highly encouraged to leverage the `core.bulk` endpoint for queuing actions. 
+Developers that need to issue large quantities of subsequent operations (example: massive bulk dataset creations) are highly encouraged to leverage the `core.bulk` endpoint for queuing actions.
 
 ## Getting Started
 
