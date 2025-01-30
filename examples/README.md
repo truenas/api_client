@@ -17,6 +17,9 @@ This directory contains various code snippets to provide examples of how a devel
 * `create_smb_timemachine_share.py` - this script provides a very basic example of how to create a new ZFS dataset
   and share that can be used as a MacOS time machine target.
 
+* `two_factor_challenge_response_auth.py` - this script provides an example of how to perform two-factor authentication
+  through the python API client using pytotp.
+
 ## Helpful Links
 
 <a href="https://truenas.com">
