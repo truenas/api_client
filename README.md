@@ -14,6 +14,17 @@ The TrueNAS websocket client provides the command line tool `midclt` and the mea
 
 By default, communication facilitated by the API between the client and middleware now uses the [JSON-RPC 2.0](https://www.jsonrpc.org/specification) protocol. However, it is still possible to use the legacy client by passing a legacy uri, e.g. `'ws://some.truenas.address/websocket'` as opposed to `'ws://some.truenas.address/api/current'`.
 
+## API Rate Limits
+
+**NOTE:**
+
+The TrueNAS API enforces strict security checking and auditing in place to detect and prevent brute force or malicious API behaivor. 
+
+Connections to the API are currently limited to 20 Auth Attempts AND/OR a single API endpoint request in a 60 second period (Subject to future change). Exceeding this limit will result in a 10 minute rate limit cooldown before API connections can be re-established. 
+
+Developers are highly recommended to architect their tools in a way that uses a single persisant websocket connection which remains connected for subsquent API calls to be issued without a re-auth.
+
+
 ## Getting Started
 
 TrueNAS comes with this client preinstalled, but it is also possible to use the TrueNAS websocket client from a non-TrueNAS host.
