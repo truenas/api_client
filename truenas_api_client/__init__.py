@@ -785,7 +785,7 @@ class JSONRPCClient:
                     raise c.error
 
             if job:
-                if isinstance(c.result, int):
+                if c.result in self._jobs:
                     jobobj = Job(self, c.result, callback=callback)
                     if job == 'RETURN':
                         return jobobj
