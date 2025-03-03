@@ -785,10 +785,13 @@ class JSONRPCClient:
                     raise c.error
 
             if job:
-                jobobj = Job(self, c.result, callback=callback)
-                if job == 'RETURN':
-                    return jobobj
-                return jobobj.result()
+                if isinstance(c.result, int):
+                    jobobj = Job(self, c.result, callback=callback)
+                    if job == 'RETURN':
+                        return jobobj
+                    return jobobj.result()
+                else:
+                    print('WARNING: Call did not return a job ID. Is the method a job?', file=sys.stderr)
 
             return c.result
         finally:
