@@ -1030,6 +1030,8 @@ def main():
             if 'error' in subscribe_payload and subscribe_payload['error']:
                 raise ValueError(subscribe_payload['error'])
             sys.exit(0)
+    else:
+        parser.print_help()
 
 
 if __name__ == '__main__':
