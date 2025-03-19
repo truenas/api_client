@@ -881,21 +881,11 @@ class JSONRPCClient:
         del self._ws
 
 
-def main():
-    """The entry point for midclt. Run `midclt -h` to see usage.
-
-    Sub-commands:
-        call, ping, subscribe
-
-    Options:
-        -h, -q, -u URI, -U USERNAME, -P PASSWORD, -K API_KEY, -t TIMEOUT
-
-    Raises:
-        ValueError: Login failed (`midclt call`) or a subscription terminated with an error (`midclt subscribe`).
-
-    """
+def get_parser():
+    """Construct the argument parser for `midclt`."""
     parser = argparse.ArgumentParser()
-    parser.add_argument('-q', '--quiet', action='store_true')
+
+    # midclt options
     parser.add_argument('-u', '--uri')
     parser.add_argument('-U', '--username')
     parser.add_argument('-P', '--password')
@@ -903,23 +893,47 @@ def main():
     parser.add_argument('-t', '--timeout', type=int)
 
     subparsers = parser.add_subparsers(help='sub-command help', dest='name')
-    iparser = subparsers.add_parser('call', help='Call method')
+
+    # call options
+    iparser = subparsers.add_parser('call', help='Call a TrueNAS API method')
+    iparser.add_argument('-q', '--quiet', help='Don\'t print error info', action='store_true')
+    iparser.add_argument('-j', '--job', help='Call a long-running job', action='store_true')
     iparser.add_argument(
-        '-j', '--job', help='Call a long running job', action='store_true'
-    )
-    iparser.add_argument(
-        '-jp', '--job-print',
-        help='Method to print job progress', type=str, choices=(
-            'progressbar', 'description',
-        ), default='progressbar',
+        '-jp',
+        '--job-print',
+        help='Method to print job progress',
+        type=str,
+        choices=('progressbar', 'description'),
+        default='progressbar',
     )
     iparser.add_argument('method', nargs='+')
-    subparsers.add_parser('ping', help='Ping')
-    subparsers.add_parser('waitready', help='Wait server')
-    iparser = subparsers.add_parser('subscribe', help='Subscribe to event')
+
+    # ping
+    subparsers.add_parser('ping', help='Test connection to the server')
+
+    # subscribe options
+    iparser = subparsers.add_parser('subscribe', help='Receive event messages in a continuous stream')
     iparser.add_argument('event')
     iparser.add_argument('-n', '--number', type=int, help='Number of events to wait before exit')
     iparser.add_argument('-t', '--timeout', type=int)
+
+    return parser
+
+
+def main():
+    """The entry point for midclt. Run `midclt -h` to see usage.
+
+    Sub-commands:
+        call, ping, subscribe
+
+    Options:
+        -h, -u URI, -U USERNAME, -P PASSWORD, -K API_KEY, -t TIMEOUT
+
+    Raises:
+        ValueError: Login failed (`midclt call`) or a subscription terminated with an error (`midclt subscribe`).
+
+    """
+    parser = get_parser()
     args = parser.parse_args()
 
     if args.username and not args.password:
@@ -1005,8 +1019,9 @@ def main():
             sys.exit(1)
     elif args.name == 'ping':
         with Client(uri=args.uri) as c:
-            if not c.ping():
+            if not (result := c.ping()):
                 sys.exit(1)
+            print(result)
     elif args.name == 'subscribe':
         with Client(uri=args.uri) as c:
 
