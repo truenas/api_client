@@ -70,12 +70,6 @@ DUMMY_HOSTNAME = "ws://localhost/api/current"  # Advised by official docs to use
 class Client:
     """Implicit wrapper of either a `JSONRPCClient` or a `LegacyClient`."""
 
-    def uri_check(self, uri: str | None, py_exceptions: bool):
-        # We pickle_load when handling py_exceptions, reduce risk of MITM on client causing a pickle.load
-        # of malicious information by only allowing this over unix domain socket.
-        if uri and py_exceptions and not uri.startswith(UNIX_SOCKET_PREFIX):
-            raise ClientException('py_exceptions are only allowed for connections to unix domain socket')
-
     def __init__(self, uri: str | None = None, reserved_ports=False, private_methods=False, py_exceptions=False,
                  log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True):
         """Initialize either a `JSONRPCClient` or a `LegacyClient`.
@@ -106,6 +100,12 @@ class Client:
 
         self.__client = client_class(uri, reserved_ports, private_methods, py_exceptions, log_py_exceptions,
                                      call_timeout, verify_ssl)
+
+    def uri_check(self, uri: str | None, py_exceptions: bool):
+        # We pickle_load when handling py_exceptions, reduce risk of MITM on client causing a pickle.load
+        # of malicious information by only allowing this over unix domain socket.
+        if uri and py_exceptions and not uri.startswith(UNIX_SOCKET_PREFIX):
+            raise ClientException('py_exceptions are only allowed for connections to unix domain socket')
 
     def __getattr__(self, item):
         return getattr(self.__client, item)
@@ -274,7 +274,6 @@ class Call:
         Args:
             method: The API method being called.
             params: Arguments passed to the method.
-
         """
         self.id = str(uuid.uuid4())
         self.method = method
@@ -427,6 +426,7 @@ class JSONRPCClient:
         self._jobs: defaultdict[str, _JobDict] = defaultdict(dict)  # type: ignore
         self._jobs_lock = Lock()
         self._jobs_watching = False
+        self._new_style_jobs = False
         self._private_methods = private_methods
         self._py_exceptions = py_exceptions
         self._log_py_exceptions = log_py_exceptions
@@ -497,8 +497,18 @@ class JSONRPCClient:
             if 'method' in message:
                 match message['method']:
                     case 'collection_update':
+                        params = message['params']
+                        if self._new_style_jobs:
+                            # With new-style jobs, the method return value will not be sent until the job is completed
+                            # We expect just to receive job ID immediately, so let's set call return value to the
+                            # newly added job ID.
+                            if params['collection'] == 'core.get_jobs' and params['msg'] in ['added', 'changed']:
+                                for message_id in params['fields']['message_ids']:
+                                    if (call := self._calls.get(message_id)) is not None:
+                                        call.result = params['id']
+                                        call.returned.set()
+                                        self._unregister_call(call)
                         if self._event_callbacks:
-                            params = message['params']
                             if '*' in self._event_callbacks:
                                 for event in self._event_callbacks['*']:
                                     self._run_callback(event, [params['msg'].upper()], params)
@@ -516,6 +526,9 @@ class JSONRPCClient:
                         logger.error('Received unknown notification %r', message['method'])
             elif 'id' in message:
                 if self._set_options_call and message['id'] == self._set_options_call.id:
+                    if 'result' in message:
+                        if isinstance(message['result'], dict) and 'legacy_jobs' in message['result']:
+                            self._new_style_jobs = not message['result']['legacy_jobs']
                     if 'error' in message:
                         try:
                             self._parse_error(message['error'], self._set_options_call)
@@ -536,7 +549,8 @@ class JSONRPCClient:
                     self._unregister_call(call)
                 else:
                     if 'result' in message:
-                        logger.error('Received a success response for non-registered method call %r', message['id'])
+                        if not self._new_style_jobs:
+                            logger.error('Received a success response for non-registered method call %r', message['id'])
                     elif 'error' in message:
                         try:
                             error = self._parse_error_and_unpickle_exception(message['error'])[0]
@@ -546,14 +560,14 @@ class JSONRPCClient:
 
                         if message['id'] is None:
                             logger.error('Received a global connection error: %r', error)
-                        else:
-                            logger.error('Received an error response for non-registered method call %r: %r',
-                                         message['id'], error)
-
-                        if error:
                             self._broadcast_error(error)
+                        else:
+                            if not self._new_style_jobs:
+                                logger.error('Received an error response for non-registered method call %r: %r',
+                                             message['id'], error)
                     else:
-                        logger.error('Received a response for non-registered method call %r', message['id'])
+                        if not self._new_style_jobs:
+                            logger.error('Received a response for non-registered method call %r', message['id'])
             else:
                 logger.error('Received unknown message %r', message)
         except Exception:
@@ -616,6 +630,7 @@ class JSONRPCClient:
     def on_open(self):
         """Make an API call to `core.set_options` to configure how middlewared sends its responses."""
         self._set_options_call = self.call("core.set_options", {
+            "legacy_jobs": False,
             "private_methods": self._private_methods,
             "py_exceptions": self._py_exceptions,
         }, background=True)
@@ -640,10 +655,11 @@ class JSONRPCClient:
         self._closed.set()
 
     def _broadcast_error(self, error: ClientException):
-        for call in self._calls.values():
+        for call in list(self._calls.values()):
             if not call.returned.is_set():
                 call.error = error
                 call.returned.set()
+                self._unregister_call(call)
 
         for job in self._jobs.values():
             event = job.get('__ready')
@@ -700,14 +716,39 @@ class JSONRPCClient:
                         event = job['__ready'] = Event()
                     event.set()
 
-    def _jobs_subscribe(self):
+    def _jobs_subscribe(self, silent=False):
         """Subscribe to job updates, calling `_jobs_callback` on every new event."""
         self._jobs_watching = True
-        self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
+        try:
+            self.subscribe('core.get_jobs', self._jobs_callback, sync=True, _log_py_enoauthenticated=not silent)
+        except Exception as e:
+            self._jobs_watching = False
 
-    def call(self, method: str, *params, background=False, callback: _JobCallback | None = None,
-             job: Literal['RETURN'] | bool = False, register_call: bool | None = None,
-             timeout: float | UndefinedType = undefined) -> Any:
+            if silent and self._is_enoauthenticated(e):
+                return
+
+            raise
+
+    def _is_enoauthenticated(self, e: BaseException):
+        if isinstance(e, ClientException) or (
+            e.__module__ == "middlewared.service_exception" and e.__class__.__name__ == "CallError"
+        ):
+            if e.errno == ClientException.ENOTAUTHENTICATED:
+                return True
+
+        return False
+
+    def call(
+            self,
+            method: str,
+            *params,
+            background=False,
+            callback: _JobCallback | None = None,
+            job: Literal['RETURN'] | bool = False,
+            register_call: bool | None = None,
+            timeout: float | UndefinedType = undefined,
+            _log_py_enoauthenticated: bool = True,
+    ) -> Any:
         """The primary way to send call requests to the API.
 
         Send a JSON-RPC v2.0 Request to the server.
@@ -738,9 +779,18 @@ class JSONRPCClient:
         if timeout is undefined:
             timeout = self._call_timeout
 
-        # We need to make sure we are subscribed to receive job updates
-        if job and not self._jobs_watching:
-            self._jobs_subscribe()
+        if not self._jobs_watching:
+            if self._new_style_jobs:
+                # We always subscribe to this since any method call can be a job now.
+                # We ignore the ENOTAUTHENTICATED error since:
+                # * `core.subscribe` made before `auth.login` will trigger it
+                # * With new-style jobs, there is no issue if we fail to subscribe to `core.get_jobs` since the
+                #   method return values or call errors will be reported though the normal JSON-RPC 2.0 protocol.
+                self._jobs_subscribe(silent=True)
+            else:
+                if job:
+                    # We need to make sure we are subscribed to receive job updates
+                    self._jobs_subscribe()
 
         c = Call(method, params)
         if register_call:
@@ -756,13 +806,21 @@ class JSONRPCClient:
             if background:
                 return c
 
-            return self.wait(c, callback=callback, job=job, timeout=timeout)
+            return self.wait(c, callback=callback, job=job, timeout=timeout,
+                             _log_py_enoauthenticated=_log_py_enoauthenticated)
         finally:
             if not background:
                 self._unregister_call(c)
 
-    def wait(self, c: Call, *, callback: _JobCallback | None = None, job: Literal['RETURN'] | bool = False,
-             timeout: float | UndefinedType = undefined) -> Any:
+    def wait(
+            self,
+            c: Call,
+            *,
+            callback: _JobCallback | None = None,
+            job: Literal['RETURN'] | bool = False,
+            timeout: float | UndefinedType = undefined,
+            _log_py_enoauthenticated: bool = True
+    ) -> Any:
         """Wait for an API call to return and return its result.
 
         Args:
@@ -791,7 +849,8 @@ class JSONRPCClient:
             if c.error:
                 if c.py_exception:
                     if self._log_py_exceptions and c.error.trace:
-                        logger.error(c.error.trace["formatted"])
+                        if _log_py_enoauthenticated or not self._is_enoauthenticated(c.py_exception):
+                            logger.error(c.error.trace["formatted"])
                     raise c.py_exception
                 else:
                     raise c.error
@@ -820,8 +879,15 @@ class JSONRPCClient:
             'event': Event(),
         }
 
-    def subscribe(self, name: str, callback: _EventCallbackProtocol, payload: _Payload | None = None,
-                  sync: bool = False) -> str:
+    def subscribe(
+            self,
+            name: str,
+            callback: _EventCallbackProtocol,
+            payload: _Payload | None = None,
+            sync: bool = False,
+            *,
+            _log_py_enoauthenticated: bool = True
+    ) -> str:
         """Subscribe to an event by calling `core.subscribe`.
 
         Args:
@@ -841,7 +907,15 @@ class JSONRPCClient:
             'sync': sync,
         })
         self._event_callbacks[name].append(payload)
-        payload['id'] = self.call('core.subscribe', name, timeout=10)
+
+        try:
+            payload['id'] = self.call(
+                'core.subscribe', name, timeout=10, _log_py_enoauthenticated=_log_py_enoauthenticated,
+            )
+        except Exception:
+            self._event_callbacks[name].remove(payload)
+            raise
+
         return payload['id']
 
     def unsubscribe(self, id_: str):
