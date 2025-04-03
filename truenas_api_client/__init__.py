@@ -720,16 +720,16 @@ class JSONRPCClient:
         """Subscribe to job updates, calling `_jobs_callback` on every new event."""
         self._jobs_watching = True
         try:
-            self.subscribe('core.get_jobs', self._jobs_callback, sync=True, _log_py_enoauthenticated=not silent)
+            self.subscribe('core.get_jobs', self._jobs_callback, sync=True, _log_py_enotauthenticated=not silent)
         except Exception as e:
             self._jobs_watching = False
 
-            if silent and self._is_enoauthenticated(e):
+            if silent and self._is_enotauthenticated(e):
                 return
 
             raise
 
-    def _is_enoauthenticated(self, e: BaseException):
+    def _is_enotauthenticated(self, e: BaseException):
         if isinstance(e, ClientException) or (
             e.__module__ == "middlewared.service_exception" and e.__class__.__name__ == "CallError"
         ):
@@ -747,7 +747,7 @@ class JSONRPCClient:
             job: Literal['RETURN'] | bool = False,
             register_call: bool | None = None,
             timeout: float | UndefinedType = undefined,
-            _log_py_enoauthenticated: bool = True,
+            _log_py_enotauthenticated: bool = True,
     ) -> Any:
         """The primary way to send call requests to the API.
 
@@ -807,7 +807,7 @@ class JSONRPCClient:
                 return c
 
             return self.wait(c, callback=callback, job=job, timeout=timeout,
-                             _log_py_enoauthenticated=_log_py_enoauthenticated)
+                             _log_py_enotauthenticated=_log_py_enotauthenticated)
         finally:
             if not background:
                 self._unregister_call(c)
@@ -819,7 +819,7 @@ class JSONRPCClient:
             callback: _JobCallback | None = None,
             job: Literal['RETURN'] | bool = False,
             timeout: float | UndefinedType = undefined,
-            _log_py_enoauthenticated: bool = True
+            _log_py_enotauthenticated: bool = True
     ) -> Any:
         """Wait for an API call to return and return its result.
 
@@ -849,7 +849,7 @@ class JSONRPCClient:
             if c.error:
                 if c.py_exception:
                     if self._log_py_exceptions and c.error.trace:
-                        if _log_py_enoauthenticated or not self._is_enoauthenticated(c.py_exception):
+                        if _log_py_enotauthenticated or not self._is_enotauthenticated(c.py_exception):
                             logger.error(c.error.trace["formatted"])
                     raise c.py_exception
                 else:
@@ -886,7 +886,7 @@ class JSONRPCClient:
             payload: _Payload | None = None,
             sync: bool = False,
             *,
-            _log_py_enoauthenticated: bool = True
+            _log_py_enotauthenticated: bool = True
     ) -> str:
         """Subscribe to an event by calling `core.subscribe`.
 
@@ -910,7 +910,7 @@ class JSONRPCClient:
 
         try:
             payload['id'] = self.call(
-                'core.subscribe', name, timeout=10, _log_py_enoauthenticated=_log_py_enoauthenticated,
+                'core.subscribe', name, timeout=10, _log_py_enotauthenticated=_log_py_enotauthenticated,
             )
         except Exception:
             self._event_callbacks[name].remove(payload)
