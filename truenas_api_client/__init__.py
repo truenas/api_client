@@ -55,7 +55,7 @@ from websocket._socket import sock_opt
 
 from . import ejson as json
 from .config import CALL_TIMEOUT
-from .exc import ReserveFDException, ClientException, ErrnoMixin, ValidationErrors, CallTimeout
+from .exc import ReserveFDException, ClientException, ErrnoMixin, ValidationErrors, CallTimeout  # noqa
 from .legacy import LegacyClient
 from .jsonrpc import CollectionUpdateParams, ErrorObj, JobFields, JSONRPCError, JSONRPCMessage, TruenasError
 from .utils import MIDDLEWARE_RUN_DIR, ProgressBar, undefined, UndefinedType, set_socket_options
@@ -76,9 +76,8 @@ class Client:
         if uri and py_exceptions and not uri.startswith(UNIX_SOCKET_PREFIX):
             raise ClientException('py_exceptions are only allowed for connections to unix domain socket')
 
-
-    def __init__(self, uri: str | None=None, reserved_ports=False, private_methods=False, py_exceptions=False,
-                 log_py_exceptions=False, call_timeout: float | UndefinedType=undefined, verify_ssl=True):
+    def __init__(self, uri: str | None = None, reserved_ports=False, private_methods=False, py_exceptions=False,
+                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True):
         """Initialize either a `JSONRPCClient` or a `LegacyClient`.
 
         Use `JSONRPCClient` unless `uri` ends with '/websocket'.
@@ -124,7 +123,7 @@ class WSClient:
     The object used by `JSONRPCClient` to send and receive data.
 
     """
-    def __init__(self, url: str, *, client: 'JSONRPCClient', reserved_ports: bool=False, verify_ssl: bool=True):
+    def __init__(self, url: str, *, client: 'JSONRPCClient', reserved_ports: bool = False, verify_ssl: bool = True):
         """Initialize a `WSClient`.
 
         Args:
@@ -303,7 +302,7 @@ class Job:
     Every `Job` is responsible for a corresponding `_JobDict` in the client's list of jobs.
 
     """
-    def __init__(self, client: 'JSONRPCClient', job_id: str, callback: _JobCallback | None=None):
+    def __init__(self, client: 'JSONRPCClient', job_id: str, callback: _JobCallback | None = None):
         """Initialize `Job`.
 
         Args:
@@ -362,7 +361,8 @@ class Job:
 
 class _EventCallbackProtocol(Protocol):
     """Specifies how event callbacks should be defined."""
-    def __call__(self, mtype: str, **message: Any) -> None: ...
+    def __call__(self, mtype: str, **message: Any) -> None:
+        pass
 
 
 class _PartialPayload(TypedDict):
@@ -705,9 +705,9 @@ class JSONRPCClient:
         self._jobs_watching = True
         self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
 
-    def call(self, method: str, *params, background=False, callback: _JobCallback | None=None,
-             job: Literal['RETURN'] | bool=False, register_call: bool | None=None,
-             timeout: float | UndefinedType=undefined) -> Any:
+    def call(self, method: str, *params, background=False, callback: _JobCallback | None = None,
+             job: Literal['RETURN'] | bool = False, register_call: bool | None = None,
+             timeout: float | UndefinedType = undefined) -> Any:
         """The primary way to send call requests to the API.
 
         Send a JSON-RPC v2.0 Request to the server.
@@ -761,8 +761,8 @@ class JSONRPCClient:
             if not background:
                 self._unregister_call(c)
 
-    def wait(self, c: Call, *, callback: _JobCallback | None=None, job: Literal['RETURN'] | bool=False,
-             timeout: float | UndefinedType=undefined) -> Any:
+    def wait(self, c: Call, *, callback: _JobCallback | None = None, job: Literal['RETURN'] | bool = False,
+             timeout: float | UndefinedType = undefined) -> Any:
         """Wait for an API call to return and return its result.
 
         Args:
@@ -820,8 +820,8 @@ class JSONRPCClient:
             'event': Event(),
         }
 
-    def subscribe(self, name: str, callback: _EventCallbackProtocol, payload: _Payload | None=None,
-                  sync: bool=False) -> str:
+    def subscribe(self, name: str, callback: _EventCallbackProtocol, payload: _Payload | None = None,
+                  sync: bool = False) -> str:
         """Subscribe to an event by calling `core.subscribe`.
 
         Args:
@@ -859,7 +859,7 @@ class JSONRPCClient:
             else:
                 self._event_callbacks.pop(k)
 
-    def ping(self, timeout: float=10) -> Literal['pong']:
+    def ping(self, timeout: float = 10) -> Literal['pong']:
         """Call `core.ping` to verify connection to the server.
 
         Args:

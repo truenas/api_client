@@ -73,7 +73,10 @@ def object_hook(obj: dict):
         if obj_len == 1:
             error_key = list(obj.keys())[0]
             if '$date' in obj:
-                return datetime.fromtimestamp(obj['$date'] / 1000, tz=timezone.utc) + timedelta(milliseconds=obj['$date'] % 1000)
+                return (
+                    datetime.fromtimestamp(obj['$date'] / 1000, tz=timezone.utc) +
+                    timedelta(milliseconds=obj['$date'] % 1000)
+                )
             if '$time' in obj:
                 return time(*[int(i) for i in obj['$time'].split(':')[:4]])  # type: ignore
             if '$set' in obj:

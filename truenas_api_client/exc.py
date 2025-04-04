@@ -60,8 +60,8 @@ class ErrnoMixin:
 class ClientException(ErrnoMixin, Exception):
     """Represents any exception that might arise from a `Client`."""
 
-    def __init__(self, error: str, errno: int | None=None, trace: TruenasTraceback | None=None,
-                 extra: list[ErrorExtra] | None=None):
+    def __init__(self, error: str, errno: int | None = None, trace: TruenasTraceback | None = None,
+                 extra: list[ErrorExtra] | None = None):
         """Initialize `ClientException`.
 
         Args:

@@ -26,6 +26,7 @@ from .utils import MIDDLEWARE_RUN_DIR, undefined, UndefinedType, set_socket_opti
 
 logger = logging.getLogger(__name__)
 
+
 class WSClient:
     def __init__(self, url, *, client, reserved_ports=False, verify_ssl=True):
         self.url = url
@@ -178,7 +179,7 @@ class Job:
 
 class LegacyClient:
     def __init__(self, uri=None, reserved_ports=False, private_methods=False, py_exceptions=False,
-                 log_py_exceptions=False, call_timeout: float | UndefinedType=undefined, verify_ssl=True):
+                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True):
         """
         Arguments:
            :reserved_ports(bool): should the local socket used a reserved port

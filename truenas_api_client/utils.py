@@ -16,12 +16,15 @@ from typing import Any, final, Mapping
 
 MIDDLEWARE_RUN_DIR = '/var/run/middleware'
 
+
 @final
 class UndefinedType:
     def __new__(cls):
         if not hasattr(cls, '_instance'):
             cls._instance = super().__new__(cls)
         return cls._instance
+
+
 undefined = UndefinedType()
 
 
@@ -107,7 +110,7 @@ class ProgressBar(object):
         )
         self.write_stream.flush()
 
-    def update(self, percentage: float | None=None, message: str | None=None):
+    def update(self, percentage: float | None = None, message: str | None = None):
         """Update the progress bar with a new percentage and/or message, redrawing it.
 
         Args:
