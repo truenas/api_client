@@ -4,6 +4,7 @@ from collections.abc import Iterable
 import errno
 
 from .jsonrpc import ErrorExtra, TruenasTraceback
+
 try:
     from libzfs import Error as ZFSError  # pytype: disable=import-error
 except ImportError:
