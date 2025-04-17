@@ -52,7 +52,7 @@ class JSONEncoder(json.JSONEncoder):
             return {'$date': int(calendar.timegm(obj.timetuple()) * 1000)}
         elif type(obj) is time:
             return {'$time': str(obj)}
-        elif isinstance(obj, set):
+        elif isinstance(obj, (set, frozenset)):
             return {'$set': list(obj)}
         elif isinstance(obj, IPv4Interface):
             return {'$ipv4_interface': str(obj)}
