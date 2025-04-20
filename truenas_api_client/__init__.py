@@ -965,6 +965,7 @@ def get_parser():
     parser.add_argument('-P', '--password')
     parser.add_argument('-K', '--api-key')
     parser.add_argument('-t', '--timeout', type=int)
+    parser.add_argument('-k', '--insecure', action='store_true', help='Disable SSL verification')
 
     subparsers = parser.add_subparsers(help='sub-command help', dest='name')
 
@@ -1022,7 +1023,7 @@ def main():
 
     if args.name == 'call':
         try:
-            with Client(uri=args.uri) as c:
+            with Client(uri=args.uri, verify_ssl=(not args.insecure)) as c:
                 try:
                     if args.username and args.password:
                         if not c.call('auth.login', args.username, args.password):
