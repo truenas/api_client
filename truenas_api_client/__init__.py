@@ -986,11 +986,11 @@ def main():
             print('Failed to run middleware call. Daemon not running?', file=sys.stderr)
             sys.exit(1)
     elif args.name == 'ping':
-        with Client(uri=args.uri) as c:
+        with Client(uri=args.uri, verify_ssl=(not args.insecure)) as c:
             if not c.ping():
                 sys.exit(1)
     elif args.name == 'subscribe':
-        with Client(uri=args.uri) as c:
+        with Client(uri=args.uri, verify_ssl=(not args.insecure)) as c:
 
             subscribe_payload = c.event_payload()
             event = subscribe_payload['event']
