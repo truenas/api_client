@@ -68,9 +68,8 @@ class WSClient:
             on_message=self._on_message,
             on_error=self._on_error,
             on_close=self._on_close,
-            ping_interval=self.ping_interval,
         )
-        Thread(daemon=True, target=self.app.run_forever).start()
+        Thread(daemon=True, target=self.app.run_forever, kwargs={"ping_interval": self.ping_interval}).start()
 
     def send(self, data):
         return self.app.send(data)
