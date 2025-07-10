@@ -28,11 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 class WSClient:
-    def __init__(self, url, *, client, reserved_ports=False, verify_ssl=True):
+    def __init__(self, url, *, client, reserved_ports=False, verify_ssl=True, ping_interval: float | int = 0):
         self.url = url
         self.client = client
         self.reserved_ports = reserved_ports
         self.verify_ssl = verify_ssl
+        self.ping_interval = ping_interval
 
         self.socket = None
         self.app = None
@@ -67,6 +68,7 @@ class WSClient:
             on_message=self._on_message,
             on_error=self._on_error,
             on_close=self._on_close,
+            ping_interval=self.ping_interval,
         )
         Thread(daemon=True, target=self.app.run_forever).start()
 
@@ -179,7 +181,8 @@ class Job:
 
 class LegacyClient:
     def __init__(self, uri=None, reserved_ports=False, private_methods=False, py_exceptions=False,
-                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True):
+                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True,
+                 ping_interval: float | int = 0):
         """
         Arguments:
            :reserved_ports(bool): should the local socket used a reserved port
@@ -207,6 +210,7 @@ class LegacyClient:
             client=self,
             reserved_ports=reserved_ports,
             verify_ssl=verify_ssl,
+            ping_interval=ping_interval,
         )
         self._ws.connect()
         self._connected.wait(10)
