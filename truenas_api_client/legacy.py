@@ -28,12 +28,13 @@ logger = logging.getLogger(__name__)
 
 
 class WSClient:
-    def __init__(self, url, *, client, reserved_ports=False, verify_ssl=True, ping_interval: float | int = 0):
+    def __init__(self, url, *, client, reserved_ports=False, verify_ssl=True, ping_interval: float | int = 0, reconnect: int = None):
         self.url = url
         self.client = client
         self.reserved_ports = reserved_ports
         self.verify_ssl = verify_ssl
         self.ping_interval = ping_interval
+        self.reconnect = reconnect
 
         self.socket = None
         self.app = None
@@ -69,7 +70,7 @@ class WSClient:
             on_error=self._on_error,
             on_close=self._on_close,
         )
-        Thread(daemon=True, target=self.app.run_forever, kwargs={"ping_interval": self.ping_interval}).start()
+        Thread(daemon=True, target=self.app.run_forever, kwargs={"ping_interval": self.ping_interval, "reconnect": self.reconnect}).start()
 
     def send(self, data):
         return self.app.send(data)
@@ -181,7 +182,7 @@ class Job:
 class LegacyClient:
     def __init__(self, uri=None, reserved_ports=False, private_methods=False, py_exceptions=False,
                  log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True,
-                 ping_interval: float | int = 0):
+                 ping_interval: float | int = 0, reconnect: int = None):
         """
         Arguments:
            :reserved_ports(bool): should the local socket used a reserved port
@@ -210,6 +211,7 @@ class LegacyClient:
             reserved_ports=reserved_ports,
             verify_ssl=verify_ssl,
             ping_interval=ping_interval,
+            reconnect=reconnect,
         )
         self._ws.connect()
         self._connected.wait(10)
