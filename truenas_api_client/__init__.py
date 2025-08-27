@@ -444,7 +444,7 @@ class JSONRPCClient:
             verify_ssl=verify_ssl,
         )
         self._ws.connect()
-        self._connected.wait(10)
+        self._connected.wait(30)
         if not self._connected.is_set():
             raise ClientException('Failed connection handshake')
         if hasattr(self, '_ws_connection_error'):
