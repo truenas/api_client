@@ -54,6 +54,7 @@ from websocket._http import connect, proxy_info
 from websocket._socket import sock_opt
 
 from . import ejson as json
+from .auth_api_key import api_key_authenticate, APIKeyAuthMech
 from .config import CALL_TIMEOUT
 from .exc import ReserveFDException, ClientException, ErrnoMixin, ValidationErrors, CallTimeout  # noqa
 from .legacy import LegacyClient
@@ -954,6 +955,30 @@ class JSONRPCClient:
         self._closed.wait(1)
         del self._ws
 
+    def login_with_api_key(
+        self,
+        username: str,
+        api_key: str,
+        auth_mechanism: APIKeyAuthMech = APIKeyAuthMech.AUTO
+    ) -> None:
+        """
+        Helper function to authenticate via API key to the truenas server.
+
+        Args:
+            username: name of the user that the API key is associated with
+                NOTE: this is required for SCRAM authentication
+            api_key: either the key material or an absolute path to the file where it is stored
+            auth_mechanism: one of "AUTO", "SCRAM", "PLAIN" specifying the type of authentication
+                to perform. AUTO will use SCRAM if support for it is detected.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: an error occurred during authentication.
+        """
+        api_key_authenticate(self, username, api_key, auth_mechanism)
+
 
 def get_parser():
     """Construct the argument parser for `midclt`."""
@@ -1028,8 +1053,7 @@ def main():
                         if not c.call('auth.login', args.username, args.password):
                             raise ValueError('Invalid username or password')
                     elif args.api_key:
-                        if not c.call('auth.login_with_api_key', args.api_key):
-                            raise ValueError('Invalid API key')
+                        c.login_with_api_key(args.username, args.api_key)
                 except Exception as e:
                     print("Failed to login: ", e)
                     sys.exit(0)
