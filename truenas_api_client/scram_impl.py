@@ -174,7 +174,7 @@ class TNScramClient:
         channel_binding: str | None
     ) -> ClientFinalMessage:
         """
-        RFC5802 section 3 has the following pseudo-code:
+        RFC5802 section 3 (SCRAM Algorithm Overview) has the following description:
 
         SaltedPassword  := Hi(Normalize(password), salt, i)
         ClientKey       := HMAC(SaltedPassword, "Client Key")
@@ -226,6 +226,23 @@ class TNScramClient:
         received_signature = b64decode(server_resp.signature)
         return hmac.compare_digest(expected_signature, received_signature)
 
+@dataclass
+class TNScramServerData:
+    """
+    Dataclass containing required information for SCRAM server to authenticate a credential.
+
+    algorithm - cryptographic algorithm used by server. This is currently hard-coded to SHA512
+    salt - random octet string that is combined with key before applying one-way encryption function.
+    iteration_count - number of iterations of the hash function
+    server_key - output of HMAC(SaltedPassword, "Server Key")
+    stored_key - output of H(HMAC(SaltedPassword, "Client Key"))
+    """
+    algorithm: str
+    salt: bytes
+    iteration_count: int
+    stored_key: bytes
+    server_key: bytes
+
 
 class TNScramServer:
     """
@@ -233,7 +250,7 @@ class TNScramServer:
     be used for development and testing purposes
     """
 
-    def __init__(self, stored_key: bytes, server_key: bytes, salt: bytes, iters: int):
+    def __init__(self, data: TNScramServerData):
         """
         This assumes that the server has already used the `username` and `api_key_id` to
         retrieve the stored_key, server_key, salt, and iters for checking the auth attempt.
@@ -264,10 +281,7 @@ class TNScramServer:
         may pose a security issue because someone with the above SaltedPassword (d) may be able to trivially construct
         a ClientKey without knowing the password.
         """
-        self.stored_key = stored_key
-        self.server_key = server_key
-        self.salt = salt
-        self.iteration_count = iters
+        self.data = data
         self.client_first_message = None
         self.server_first_message = None
 
@@ -285,8 +299,8 @@ class TNScramServer:
 
         # keep copy of our response because we need the nonce to validate the ClientProof
         self.server_first_message = ServerFirstMessage(
-            salt=b64encode(self.salt).decode(),
-            iteration_count=self.iteration_count,
+            salt=b64encode(self.data.salt).decode(),
+            iteration_count=self.data.iteration_count,
             nonce=client_resp.nonce + server_nonce
         )
         return self.server_first_message
@@ -310,11 +324,12 @@ class TNScramServer:
         )
 
         client_proof = b64decode(client_resp.client_proof)
-        client_signature = hmac_sha512(self.stored_key, self.auth_message.encode())
+        client_signature = hmac_sha512(self.data.stored_key, self.auth_message.encode())
+        assert len(client_proof) == len(client_signature)
 
         client_key = bytes(a ^ b for a, b in zip(client_proof, client_signature))
 
-        if not hmac.compare_digest(h(client_key), self.stored_key):
+        if not hmac.compare_digest(h(client_key), self.data.stored_key):
             return None
 
         server_signature = hmac_sha512(self.server_key, auth_message.encode())
