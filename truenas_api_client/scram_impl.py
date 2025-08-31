@@ -24,6 +24,9 @@ class TNScramAuthResponse(StrEnum):
     SCRAM_RESP_FINAL = 'SCRAM_RESP_FINAL'
 
 
+SCRAM_MAX_ITERS = 5000000  # We set maximum iterations to in theory prevent DOS from malicious server
+
+
 @dataclass
 class ClientFirstMessage:
     """
@@ -187,6 +190,9 @@ class TNScramClient:
         """
         if channel_binding is not None:
             raise NotImplementedError('Channel binding support has not been addded yet')
+
+        if server_resp.iteration_count > SCRAM_MAX_ITERS:
+            raise ValueError(f'{server_resp.iteration_count}: recieved unexpectedly high iteration count from server')
 
         message = ClientFinalMessage(channel_binding=channel_binding, nonce=server_resp.nonce, client_proof=None)
 
