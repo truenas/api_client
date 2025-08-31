@@ -73,7 +73,7 @@ class ClientFinalMessage:
     """
     channel_binding: str | None  # base64 encoded GS2 Header for SCRAM-SHA512-PLUS.
     nonce: str  # Copy of nonce from ServerFirstMessage
-    client_proof: str  # base64 encoded
+    client_proof: str | None  # base64 encoded
 
     def to_rfc_string(self) -> str:
         gs2_header = self.channel_binding or 'biws'  # biws == base64("")
@@ -226,6 +226,7 @@ class TNScramClient:
         received_signature = b64decode(server_resp.signature)
         return hmac.compare_digest(expected_signature, received_signature)
 
+
 @dataclass
 class TNScramServerData:
     """
@@ -324,7 +325,7 @@ class TNScramServer:
         )
 
         client_proof = b64decode(client_resp.client_proof)
-        client_signature = hmac_sha512(self.data.stored_key, self.auth_message.encode())
+        client_signature = hmac_sha512(self.data.stored_key, auth_message.encode())
         assert len(client_proof) == len(client_signature)
 
         client_key = bytes(a ^ b for a, b in zip(client_proof, client_signature))
@@ -332,6 +333,6 @@ class TNScramServer:
         if not hmac.compare_digest(h(client_key), self.data.stored_key):
             return None
 
-        server_signature = hmac_sha512(self.server_key, auth_message.encode())
+        server_signature = hmac_sha512(self.data.server_key, auth_message.encode())
 
         return ServerFinalMessage(signature=b64encode(server_signature).decode())
