@@ -28,6 +28,33 @@ SCRAM_MAX_ITERS = 5000000  # We set maximum iterations to in theory prevent DOS 
 
 
 @dataclass
+class TNScramData:
+    """
+    Dataclass containing required information for SCRAM server to authenticate a credential.
+
+    algorithm - cryptographic algorithm used by server. This is currently hard-coded to SHA512
+    salt - random octet string that is combined with key before applying one-way encryption function.
+    iteration_count - number of iterations of the hash function
+    server_key - output of HMAC(SaltedPassword, "Server Key")
+    client_key = output of HMAC(SaltedPassword, "Client Key")
+    stored_key - output of H(client_key)
+
+    NOTE:
+    Client must hold the client_key + stored_key, the original pbkdf_512 hash of the password,
+    or the original plain text of the password in order to authenticate. The least computationally
+    expensive option client-side is to use the pre-computed client and stored keys.
+
+    Server must hold the server_key and stored_key.
+    """
+    algorithm: str
+    salt: bytes
+    iteration_count: int
+    client_key: bytes | None
+    stored_key: bytes
+    server_key: bytes | None
+
+
+@dataclass
 class ClientFirstMessage:
     """
     The first authentication message from the client. This initiates the conversation with the server. At this point
@@ -233,31 +260,13 @@ class TNScramClient:
         return hmac.compare_digest(expected_signature, received_signature)
 
 
-@dataclass
-class TNScramServerData:
-    """
-    Dataclass containing required information for SCRAM server to authenticate a credential.
-
-    algorithm - cryptographic algorithm used by server. This is currently hard-coded to SHA512
-    salt - random octet string that is combined with key before applying one-way encryption function.
-    iteration_count - number of iterations of the hash function
-    server_key - output of HMAC(SaltedPassword, "Server Key")
-    stored_key - output of H(HMAC(SaltedPassword, "Client Key"))
-    """
-    algorithm: str
-    salt: bytes
-    iteration_count: int
-    stored_key: bytes
-    server_key: bytes
-
-
 class TNScramServer:
     """
     Reference implementation of the server portion of the authentication protocol. This can
     be used for development and testing purposes
     """
 
-    def __init__(self, data: TNScramServerData):
+    def __init__(self, data: TNScramData):
         """
         This assumes that the server has already used the `username` and `api_key_id` to
         retrieve the stored_key, server_key, salt, and iters for checking the auth attempt.
