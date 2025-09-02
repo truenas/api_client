@@ -87,7 +87,7 @@ def api_key_authenticate(
         raise ValueError(f'{resp_type}: unexpected server respones')
 
     server_response = ServerFirstMessage(**resp)
-    client_final_message = asdict(sc.get_client_final_message(server_response))
+    client_final_message = asdict(sc.get_client_final_message(server_response), channel_binding=None)
 
     # Send our first client SCRAM final message that provides client proof to server
     resp = c.call('auth.login_ex', {'mechanism': TNScramAuthMessage.API_KEY_SCRAM_FINAL | client_final_message})
