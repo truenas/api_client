@@ -14,17 +14,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 
-class TNScramAuthMessage(StrEnum):
-    API_KEY_SCRAM = 'API_KEY_SCRAM'
-    API_KEY_SCRAM_FINAL = 'API_KEY_SCRAM_FINAL'
-
-
-class TNScramAuthResponse(StrEnum):
-    SCRAM_RESP_INIT = 'SCRAM_RESP_INIT'
-    SCRAM_RESP_FINAL = 'SCRAM_RESP_FINAL'
-
-
 SCRAM_MAX_ITERS = 5000000  # We set maximum iterations to in theory prevent DOS from malicious server
+GS2_NO_CHANNEL_BINDING = b64encode(b'n,,').encode()
 
 
 @dataclass
@@ -106,7 +97,7 @@ class ClientFinalMessage:
     client_proof: str | None  # base64 encoded
 
     def to_rfc_string(self) -> str:
-        gs2_header = self.channel_binding or 'biws'  # biws == base64("")
+        gs2_header = self.channel_binding or GS2_NO_CHANNEL_BINDING  # biws == base64("")
         if not self.client_proof:
             return f'c={gs2_header},r={self.nonce}'
 
