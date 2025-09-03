@@ -98,11 +98,9 @@ with Client() as c:
 ## Helpful Links
 
 <a href="https://truenas.com">
-<img align="right" src="https://www.truenas.com/docs/images/TrueNAS_Open_Enterprise_Storage.png" />
+<img align="right" src="https://www.truenas.com/docs/images/truenas-logo-mark.png" />
 </a>
 
-- [Websocket API docs](https://www.truenas.com/docs/api/scale_websocket_api.html)
-- [Middleware repo](https://github.com/truenas/middleware)
+- [TrueNAS API docs](https://api.truenas.com/)
 - [Official TrueNAS Documentation Hub](https://www.truenas.com/docs/)
-- [Get started building TrueNAS Scale](https://github.com/truenas/scale-build)
 - [Forums](https://www.truenas.com/community/)
