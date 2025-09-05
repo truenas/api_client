@@ -38,6 +38,10 @@ class ErrnoMixin:
     """Client not authenticated."""
     ESSLCERTVERIFICATIONERROR = 208
     """SSL certificate/host key could not be verified."""
+    EREBOOTREQUIRED = 209
+    """System reboot is required."""
+    EHAUNAVAILABLE = 210
+    """HA is unavailable."""
 
     @classmethod
     def _get_errname(cls, code: int) -> str | None:
