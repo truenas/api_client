@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "truenas_api_client"
+description = "TrueNAS API client"
+requires-python = ">=3.10"
+license = {text = "LGPLv3"}
+dynamic = ["version"]
+dependencies = ["websocket-client"]
+
+[project.scripts]
+midclt = "truenas_api_client:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["truenas_api_client*"]
