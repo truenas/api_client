@@ -18,7 +18,7 @@ By default, communication facilitated by the API between the client and middlewa
 
 TrueNAS comes with this client preinstalled, but it is also possible to use the TrueNAS websocket client from a non-TrueNAS host.
 
-On a non-TrueNAS host, ensure that Git is installed and run `pip install git+https://github.com/truenas/api_client.git` to automatically install dependencies. You may alternatively clone this repository and run `python setup.py install`. Using a Python venv is recommended.
+On a non-TrueNAS host, ensure that Git is installed and run `pip install git+https://github.com/truenas/api_client.git` to automatically install dependencies. You may alternatively clone this repository and run `pip install .`. Using a Python venv is recommended. Using `pipx` will automatically create a venv for you (i.e. `pipx install .`).
 
 ## Usage
 
