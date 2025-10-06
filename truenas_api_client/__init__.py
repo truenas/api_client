@@ -520,7 +520,8 @@ class JSONRPCClient:
                         if params['collection'] in self._event_callbacks:
                             for event in self._event_callbacks[params['collection']]:
                                 if 'error' in params:
-                                    event['error'] = params['error']['reason'] or params['error']
+                                    err = params['error']
+                                    event['error'] = reason if err and (reason := err['reason']) else err
                                 event['event'].set()
                     case _:
                         logger.error('Received unknown notification %r', message['method'])
