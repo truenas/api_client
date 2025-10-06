@@ -80,7 +80,7 @@ class TruenasError(TypedDict):
 
 class NotifyUnsubscribedParams(TypedDict):
     collection: str
-    error: TruenasError
+    error: TruenasError | None
 
 
 class NotifyUnsubscribed(TypedDict):
