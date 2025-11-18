@@ -72,7 +72,11 @@ with Client(uri="ws://some.other.truenas/api/current") as c:
 
 # API key
 with Client(uri="ws://some.other.truenas/api/current") as c:
-      c.call("auth.login_with_api_key", key)
+      c.login_with_api_key(username, key)
+
+# API key file
+with Client(uri="ws://some.other.truenas/api/current") as c:
+      c.login_with_api_key(username, "/path/to/keyfile.json")
 ```
 
 #### Start a job
