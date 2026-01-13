@@ -20,6 +20,11 @@ from datetime import date, datetime, time, timedelta, timezone
 from ipaddress import IPv4Interface, IPv6Interface
 import json
 
+try:
+    from pydantic import BaseModel
+except ImportError:
+    BaseModel = None
+
 
 class EJSONDecodeError(ValueError):
     pass
@@ -58,6 +63,8 @@ class JSONEncoder(json.JSONEncoder):
             return {'$ipv4_interface': str(obj)}
         elif isinstance(obj, IPv6Interface):
             return {'$ipv6_interface': str(obj)}
+        elif BaseModel is not None and isinstance(obj, BaseModel):
+            return obj.model_dump()
         return super(JSONEncoder, self).default(obj)
 
 
