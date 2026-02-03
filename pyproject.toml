@@ -16,3 +16,6 @@ midclt = "truenas_api_client:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["truenas_api_client*"]
+
+[tool.setuptools.package-data]
+"truenas_api_client" = ["py.typed"]
