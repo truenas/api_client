@@ -237,7 +237,7 @@ def api_key_authenticate(
         # Type narrowing: key_data is RawKeyData here
         assert auth_data.key_data_type == KeyDataType.RAW
         legacy_key_data: RawKeyData = auth_data.key_data  # type: ignore[assignment]
-        if not c.call('auth.login_with_key', legacy_key_data['raw_key']):
+        if not c.call('auth.login_with_api_key', legacy_key_data['raw_key']):
             raise ValueError('Invalid API key')
 
         return
