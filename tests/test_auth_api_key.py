@@ -13,9 +13,7 @@ from pathlib import Path
 from truenas_api_client.auth_api_key import (
     KeyData,
     KeyDataType,
-    PrecomputedKeyData,
     RAW_KEY_SEPARATOR,
-    RawKeyData,
     _parse_ini_config,
     get_key_material,
 )
@@ -315,6 +313,43 @@ class TestGetKeyMaterialErrors(unittest.TestCase):
         """Test empty string without dash raises error."""
         with self.assertRaises(ValueError):
             get_key_material("")
+
+    def test_raw_key_wrong_type(self):
+        """Test that non-string raw_key raises error."""
+        data = {"raw_key": 12345}
+        json_str = json.dumps(data)
+
+        with self.assertRaises(ValueError) as ctx:
+            get_key_material(json_str)
+        self.assertIn("raw_key must be a string", str(ctx.exception))
+
+    def test_precomputed_client_key_wrong_type(self):
+        """Test that non-string client_key raises error."""
+        data = {
+            "client_key": 123,  # Should be string
+            "stored_key": "c3RvcmVka2V5NDU2",
+            "server_key": "c2VydmVya2V5Nzg5",
+            "api_key_id": 42
+        }
+        json_str = json.dumps(data)
+
+        with self.assertRaises(ValueError) as ctx:
+            get_key_material(json_str)
+        self.assertIn("client_key must be a string", str(ctx.exception))
+
+    def test_precomputed_api_key_id_wrong_type(self):
+        """Test that non-int api_key_id raises error."""
+        data = {
+            "client_key": "Y2xpZW50a2V5MTIz",
+            "stored_key": "c3RvcmVka2V5NDU2",
+            "server_key": "c2VydmVya2V5Nzg5",
+            "api_key_id": "should_be_int"  # Should be int
+        }
+        json_str = json.dumps(data)
+
+        with self.assertRaises(ValueError) as ctx:
+            get_key_material(json_str)
+        self.assertIn("api_key_id must be an int", str(ctx.exception))
 
 
 class TestKeyDataType(unittest.TestCase):

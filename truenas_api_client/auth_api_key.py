@@ -142,18 +142,36 @@ def get_key_material(key: str) -> KeyData:
     # Construct the appropriate type based on the fields present
     try:
         if 'raw_key' in data:
+            raw_key_value = data['raw_key']
+            if not isinstance(raw_key_value, str):
+                raise ValueError(f'raw_key must be a string, got {type(raw_key_value)}')
             return KeyData(
                 key_data_type=KeyDataType.RAW,
-                key_data=RawKeyData(raw_key=data['raw_key'])
+                key_data=RawKeyData(raw_key=raw_key_value)
             )
         else:
+            # Validate and extract precomputed key fields with type checking
+            client_key_value = data['client_key']
+            stored_key_value = data['stored_key']
+            server_key_value = data['server_key']
+            api_key_id_value = data['api_key_id']
+
+            if not isinstance(client_key_value, str):
+                raise ValueError(f'client_key must be a string, got {type(client_key_value)}')
+            if not isinstance(stored_key_value, str):
+                raise ValueError(f'stored_key must be a string, got {type(stored_key_value)}')
+            if not isinstance(server_key_value, str):
+                raise ValueError(f'server_key must be a string, got {type(server_key_value)}')
+            if not isinstance(api_key_id_value, int):
+                raise ValueError(f'api_key_id must be an int, got {type(api_key_id_value)}')
+
             return KeyData(
                 key_data_type=KeyDataType.PRECOMPUTED,
                 key_data=PrecomputedKeyData(
-                    client_key=data['client_key'],
-                    stored_key=data['stored_key'],
-                    server_key=data['server_key'],
-                    api_key_id=data['api_key_id']
+                    client_key=client_key_value,
+                    stored_key=stored_key_value,
+                    server_key=server_key_value,
+                    api_key_id=api_key_id_value
                 )
             )
     except KeyError as e:
