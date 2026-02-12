@@ -37,7 +37,7 @@ and server without transmitting passwords over the network. It protects against:
                                                           {
                                                             "result": {
                                                               "response_type": "SCRAM_RESPONSE",
-                                                              "scram_type": "SERVER_FIRST_MESSAGE",
+                                                              "scram_type": "SERVER_FIRST_RESPONSE",
                                                               "rfc_str": "r=<combined-nonce>,
                                                                           s=<salt-base64>,
                                                                           i=<iterations>"
@@ -76,7 +76,7 @@ and server without transmitting passwords over the network. It protects against:
                                                           {
                                                             "result": {
                                                               "response_type": "SCRAM_RESPONSE",
-                                                              "scram_type": "SERVER_FINAL_MESSAGE",
+                                                              "scram_type": "SERVER_FINAL_RESPONSE",
                                                               "rfc_str": "v=<server-signature>"
                                                             }
                                                           }
@@ -127,15 +127,15 @@ SCRAM_E_AUTH_FAILED = getattr(truenas_pyscram, 'SCRAM_E_AUTH_FAILED', 7)
 
 class ScramMessageType(StrEnum):
     CLIENT_FIRST_MESSAGE = 'CLIENT_FIRST_MESSAGE'
-    SERVER_FIRST_MESSAGE = 'SERVER_FIRST_MESSAGE'
+    SERVER_FIRST_RESPONSE = 'SERVER_FIRST_RESPONSE'
     CLIENT_FINAL_MESSAGE = 'CLIENT_FINAL_MESSAGE'
-    SERVER_FINAL_MESSAGE = 'SERVER_FINAL_MESSAGE'
+    SERVER_FINAL_RESPONSE = 'SERVER_FINAL_RESPONSE'
 
 
 class ScramMessage(TypedDict):
     scram_type: ScramMessageType
     """ The type of SCRAM message. This will be one of: "CLIENT_FIRST_MESSAGE",
-    "SERVER_FIRST_MESSAGE", "CLIENT_FINAL_MESSAGE", "SERVER_FINAL_MESSAGE" """
+    "SERVER_FIRST_RESPONSE", "CLIENT_FINAL_MESSAGE", "SERVER_FINAL_RESPONSE" """
     rfc_str: str
     """ The RFC5802 string associated with the scram_type. These messages are generated
     by the scram library based on the client and/or server response and stored secrets. """
@@ -248,7 +248,7 @@ class TNScramClient:
         Returns:
             ClientFinalMessage object
         """
-        if server_resp_dict['scram_type'] != ScramMessageType.SERVER_FIRST_MESSAGE:
+        if server_resp_dict['scram_type'] != ScramMessageType.SERVER_FIRST_RESPONSE:
             raise TypeError(f'{server_resp_dict["scram_type"]}: unexpected response type')
 
         server_resp = truenas_pyscram.ServerFirstMessage(rfc_string=server_resp_dict['rfc_str'])
@@ -313,10 +313,10 @@ class TNScramClient:
             True if verification succeeds
 
         Raises:
-            TypeError: If response type is not SERVER_FINAL_MESSAGE
+            TypeError: If response type is not SERVER_FINAL_RESPONSE
             ValueError: If server response lacks signature or verification fails
         """
-        if server_resp_dict['scram_type'] != ScramMessageType.SERVER_FINAL_MESSAGE:
+        if server_resp_dict['scram_type'] != ScramMessageType.SERVER_FINAL_RESPONSE:
             raise TypeError(f'{server_resp_dict["scram_type"]}: unexpected response type')
 
         server_resp = truenas_pyscram.ServerFinalMessage(rfc_string=server_resp_dict['rfc_str'])

@@ -137,7 +137,7 @@ class TestTNScramClientFinalMessage(unittest.TestCase):
         )
 
         server_resp = {
-            'scram_type': ScramMessageType.SERVER_FIRST_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
             'rfc_str': str(server_first_msg)
         }
 
@@ -164,7 +164,7 @@ class TestTNScramClientFinalMessage(unittest.TestCase):
         )
 
         server_resp = {
-            'scram_type': ScramMessageType.SERVER_FIRST_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
             'rfc_str': str(server_first_msg)
         }
 
@@ -178,14 +178,14 @@ class TestTNScramClientFinalMessage(unittest.TestCase):
         client.get_client_first_message(username=self.username)
 
         server_resp = {
-            'scram_type': ScramMessageType.SERVER_FINAL_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
             'rfc_str': 'v=test'
         }
 
         with self.assertRaises(TypeError) as ctx:
             client.get_client_final_message(server_resp)
 
-        self.assertIn("SERVER_FINAL_MESSAGE", str(ctx.exception))
+        self.assertIn("SERVER_FINAL_RESPONSE", str(ctx.exception))
 
     def test_get_client_final_message_high_iterations(self):
         """Test error handling for too high iteration count."""
@@ -204,7 +204,7 @@ class TestTNScramClientFinalMessage(unittest.TestCase):
         rfc_string = f"r={nonce_b64},s={salt_b64},i={high_iters}"
 
         server_resp = {
-            'scram_type': ScramMessageType.SERVER_FIRST_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
             'rfc_str': rfc_string
         }
 
@@ -236,7 +236,7 @@ class TestTNScramClientVerification(unittest.TestCase):
             iterations=self.auth_data.iterations
         )
         server_resp_first = {
-            'scram_type': ScramMessageType.SERVER_FIRST_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
             'rfc_str': str(server_first_msg)
         }
         client.get_client_final_message(server_resp_first)
@@ -250,7 +250,7 @@ class TestTNScramClientVerification(unittest.TestCase):
             server_key=client.server_key
         )
         server_resp_final = {
-            'scram_type': ScramMessageType.SERVER_FINAL_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
             'rfc_str': str(server_final_msg)
         }
 
@@ -264,14 +264,14 @@ class TestTNScramClientVerification(unittest.TestCase):
         client = TNScramClient(raw_key_material=self.password)
 
         server_resp = {
-            'scram_type': ScramMessageType.SERVER_FIRST_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
             'rfc_str': 'r=test,s=test,i=100000'
         }
 
         with self.assertRaises(TypeError) as ctx:
             client.verify_server_final_message(server_resp)
 
-        self.assertIn("SERVER_FIRST_MESSAGE", str(ctx.exception))
+        self.assertIn("SERVER_FIRST_RESPONSE", str(ctx.exception))
 
     def test_verify_server_final_message_no_server_key(self):
         """Test error when server_key is not available."""
@@ -288,14 +288,14 @@ class TestTNScramClientVerification(unittest.TestCase):
             iterations=self.auth_data.iterations
         )
         server_resp_first = {
-            'scram_type': ScramMessageType.SERVER_FIRST_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
             'rfc_str': str(server_first_msg)
         }
         client.get_client_final_message(server_resp_first)
 
         # Try to verify without server_key
         server_resp_final = {
-            'scram_type': ScramMessageType.SERVER_FINAL_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
             'rfc_str': 'v=dGVzdA=='
         }
 
@@ -330,7 +330,7 @@ class TestTNScramClientFullFlow(unittest.TestCase):
             iterations=auth_data.iterations
         )
         server_resp_first = {
-            'scram_type': ScramMessageType.SERVER_FIRST_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
             'rfc_str': str(server_first)
         }
 
@@ -352,7 +352,7 @@ class TestTNScramClientFullFlow(unittest.TestCase):
             server_key=client.server_key
         )
         server_resp_final = {
-            'scram_type': ScramMessageType.SERVER_FINAL_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
             'rfc_str': str(server_final)
         }
 
@@ -383,7 +383,7 @@ class TestTNScramClientFullFlow(unittest.TestCase):
             iterations=auth_data.iterations
         )
         server_resp_first = {
-            'scram_type': ScramMessageType.SERVER_FIRST_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
             'rfc_str': str(server_first)
         }
 
@@ -397,7 +397,7 @@ class TestTNScramClientFullFlow(unittest.TestCase):
             server_key=auth_data.server_key
         )
         server_resp_final = {
-            'scram_type': ScramMessageType.SERVER_FINAL_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
             'rfc_str': str(server_final)
         }
 
@@ -426,7 +426,7 @@ class TestTNScramClientFullFlow(unittest.TestCase):
             iterations=auth_data.iterations
         )
         server_resp_first = {
-            'scram_type': ScramMessageType.SERVER_FIRST_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
             'rfc_str': str(server_first)
         }
 
@@ -440,7 +440,7 @@ class TestTNScramClientFullFlow(unittest.TestCase):
             server_key=client.server_key
         )
         server_resp_final = {
-            'scram_type': ScramMessageType.SERVER_FINAL_MESSAGE,
+            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
             'rfc_str': str(server_final)
         }
 
