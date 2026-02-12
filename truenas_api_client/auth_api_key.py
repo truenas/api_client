@@ -270,7 +270,10 @@ def api_key_authenticate(
     resp = c.call('auth.login_ex', {'mechanism': MECHANISM_SCRAM} | client_first_message)
     resp_type = resp.pop('response_type')
 
-    if resp_type != RESPONSE_TYPE_SCRAM:
+    if resp_type == RESPONSE_TYPE_AUTH_ERR:
+        raise ValueError('Invalid API key')
+
+    elif resp_type != RESPONSE_TYPE_SCRAM:
         raise ValueError(f'{resp_type}: unexpected server response')
 
     client_final_message = sc.get_client_final_message(server_resp_dict=resp)
