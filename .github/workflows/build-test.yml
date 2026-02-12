@@ -1,0 +1,58 @@
+name: Build and Test
+
+on:
+  pull_request:
+    branches: [ master ]
+  push:
+    branches: [ master ]
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+
+    steps:
+    - name: Checkout api_client code
+      uses: actions/checkout@v4
+      with:
+        path: api_client
+
+    - name: Checkout truenas_scram
+      uses: actions/checkout@v4
+      with:
+        repository: truenas/truenas_scram
+        path: truenas_scram
+
+    - name: Install system dependencies
+      run: |
+        apt update
+        apt install -y libssl-dev libbsd-dev python3-dev build-essential devscripts debhelper
+        apt install -y debhelper dh-python pybuild-plugin-pyproject python3-all-dev
+        apt install -y python3-pip python3-setuptools python3-build libidn-dev
+        apt install -y python3-websocket
+
+    - name: Build truenas_scram Debian packages
+      run: |
+        cd truenas_scram
+        dpkg-buildpackage -us -uc -b
+        cd ..
+
+    - name: Install truenas_scram packages
+      run: |
+        dpkg -i libtruenas-scram1_*.deb
+        dpkg -i python3-truenas-scram_*.deb
+
+    - name: Build truenas_api_client Debian package
+      run: |
+        cd api_client
+        dpkg-buildpackage -us -uc -b
+        cd ..
+
+    - name: Install truenas_api_client package
+      run: |
+        dpkg -i python3-truenas-api-client_*.deb
+
+    - name: Run tests
+      run: |
+        cd api_client
+        python3 -m unittest discover -s tests -p 'test_*.py' -v
