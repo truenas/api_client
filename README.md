@@ -79,6 +79,60 @@ with Client(uri="ws://some.other.truenas/api/current") as c:
       c.login_with_api_key(username, "/path/to/keyfile.json")
 ```
 
+### API Key Storage Formats
+
+TrueNAS API keys can be stored in multiple formats. The key material is provided by TrueNAS when generating an
+API key. SCRAM-SHA512 authentication is supported in TrueNAS version 26 and later. Earlier versions use plain API key
+authentication.
+
+#### Raw API Key
+
+The raw API key string returned by TrueNAS in the `key` field of `api_key.create` response.
+Format: `{api_key_id}-{raw_key_material}`
+
+```
+1-uz8DhKHFhRIUQIvjzabPYtpy5wf1DJ3ZBLlDgNVhRAFT7Y6pJGUlm0n3apwxWEU4
+```
+
+This can be passed directly to `login_with_api_key()` or stored in a file.
+
+#### JSON Format
+
+Store the raw key:
+```json
+{
+  "raw_key": "1-uz8DhKHFhRIUQIvjzabPYtpy5wf1DJ3ZBLlDgNVhRAFT7Y6pJGUlm0n3apwxWEU4",
+  "api_key_id": 1
+}
+```
+
+Or store pre-computed keys (TrueNAS 26+):
+```json
+{
+  "client_key": "base64_encoded_client_key",
+  "stored_key": "base64_encoded_stored_key",
+  "server_key": "base64_encoded_server_key",
+  "api_key_id": 1
+}
+```
+
+Pre-computed keys avoid PBKDF2 computation on the client side.
+
+#### INI Format
+
+Store keys in INI-style configuration files:
+
+```ini
+[TRUENAS_API_KEY]
+client_key = base64_encoded_client_key
+stored_key = base64_encoded_stored_key
+server_key = base64_encoded_server_key
+api_key_id = 1
+```
+
+The `[TRUENAS_API_KEY]` section header is required for INI files with multiple sections.
+For single-section files, any section name is accepted. Files without section headers use the DEFAULT section.
+
 #### Start a job
 
 ```python

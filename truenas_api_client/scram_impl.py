@@ -111,6 +111,7 @@ except ImportError:
 
 # Import constants
 SCRAM_MAX_ITERS = getattr(truenas_pyscram, 'SCRAM_MAX_ITERS', 5000000)
+SCRAM_MIN_ITERS = getattr(truenas_pyscram, 'SCRAM_MIN_ITERS', 50000)
 
 # Export message classes, exception, and error codes for compatibility
 ClientFirstMessage = truenas_pyscram.ClientFirstMessage
@@ -201,7 +202,14 @@ class TNScramClient:
 
         Returns:
             ClientFirstMessage object
+
+        Raises:
+            ValueError: If username is empty or invalid
         """
+        # Validate username
+        if not username or not username.strip():
+            raise ValueError('Username cannot be empty')
+
         # Build kwargs, only include gs2_header if it's not None
         kwargs = {
             'username': username,
@@ -244,8 +252,11 @@ class TNScramClient:
             raise TypeError(f'{server_resp_dict["scram_type"]}: unexpected response type')
 
         server_resp = truenas_pyscram.ServerFirstMessage(rfc_string=server_resp_dict['rfc_str'])
-        if server_resp.iterations > SCRAM_MAX_ITERS:
-            raise ValueError(f'{server_resp.iterations}: received unexpectedly high iteration count from server')
+        if server_resp.iterations < SCRAM_MIN_ITERS or server_resp.iterations > SCRAM_MAX_ITERS:
+            raise ValueError(
+                f'{server_resp.iterations}: iteration count from server is outside valid range '
+                f'[{SCRAM_MIN_ITERS}, {SCRAM_MAX_ITERS}]'
+            )
 
         self.server_first_message = server_resp
 
@@ -317,6 +328,9 @@ class TNScramClient:
         # Verify the server signature
         if self.server_key is None:
             raise ValueError('Cannot verify server signature without server_key')
+
+        # Type narrowing: assert helps type checker understand server_key is not None
+        assert self.server_key is not None
 
         # Both C extension and pure Python raise ScramError on failure
         # Returns None on success
