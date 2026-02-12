@@ -1056,11 +1056,25 @@ def main():
         args.password = getpass()
 
     def from_json(args):
+        stdin_content = None
         for i in args:
-            try:
-                yield json.loads(i)
-            except Exception:
-                yield i
+            if i == '-':
+                # Read from stdin once and cache it
+                if stdin_content is None:
+                    if sys.stdin.isatty():
+                        print("Error: Cannot read from stdin when connected to a terminal.", file=sys.stderr)
+                        print("Please pipe input or provide the argument directly.", file=sys.stderr)
+                        sys.exit(1)
+                    stdin_content = sys.stdin.read()
+                try:
+                    yield json.loads(stdin_content)
+                except Exception:
+                    yield stdin_content
+            else:
+                try:
+                    yield json.loads(i)
+                except Exception:
+                    yield i
 
     if args.name == 'call':
         try:
