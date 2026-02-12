@@ -13,7 +13,11 @@ __all__ = ['ClientFinalMessage']
 
 
 class ClientFinalMessage:
-    __rfc_str = '<UNINITIALIZED>'
+    __rfc_str: str
+    __nonce: CryptoDatum
+    __channel_binding: CryptoDatum | None
+    __client_proof: CryptoDatum | None
+    __gs2_header: str | None
 
     def __compute_auth_message(
         self,
@@ -62,6 +66,7 @@ class ClientFinalMessage:
 
     def __generate_rfc_string(self, channel_binding_b64: str) -> str:
         """Generate RFC 5802 formatted client final message."""
+        assert self.__client_proof is not None, "client_proof must be set before generating RFC string"
         nonce_b64 = b64encode(self.__nonce).decode()
         client_proof_b64 = b64encode(self.__client_proof).decode()
         return f'c={channel_binding_b64},r={nonce_b64},p={client_proof_b64}'
@@ -162,13 +167,14 @@ class ClientFinalMessage:
 
         try:
             nonce_bytes = b64decode(nonce_b64)
-            channel_binding_bytes = b64decode(channel_binding_b64)
+            channel_binding_bytes: bytes | None = b64decode(channel_binding_b64)
 
             # Check if channel binding is GS2_NO_CHANNEL_BINDING ("biws" = base64("n,,"))
             if channel_binding_bytes == b'n,,':
                 channel_binding_bytes = None
 
             # Client proof is optional when parsing (might be parsing without-proof variant)
+            client_proof_bytes: bytes | None
             if client_proof_b64:
                 client_proof_bytes = b64decode(client_proof_b64)
             else:
