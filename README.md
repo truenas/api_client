@@ -46,6 +46,20 @@ root@my_truenas[~]# midclt --uri ws://some.other.truenas/api/current -U user -P 
 root@my_truenas[~]# midclt call -j pool.dataset.lock mypool/mydataset
 ```
 
+#### Use API key from file and read payload from stdin
+
+The `-K` option accepts either a raw API key string or a path to a file containing the key. You can also use `-` to read
+the API call payload from stdin (via pipe or input redirection), which is useful for keeping sensitive data out of
+command history and process listings.
+
+```bash
+# API key from file, payload from stdin via input redirection
+midclt -U larry -K /home/larry/truenas_api_key.json call user.create - < /home/larry/user_secret_payload.json
+
+# API key from file, payload from stdin via pipe
+cat /path/to/secret/payload.json | midclt -U admin -K /root/.truenas_api_key call user.create -
+```
+
 ### Scripting
 
 The TrueNAS API client can also be used in Python scripts.
