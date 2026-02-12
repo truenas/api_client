@@ -14,7 +14,7 @@ __all__ = ['ServerFinalMessage']
 
 
 class ServerFinalMessage:
-    __rfc_str = '<UNITIALIZED>'
+    __rfc_str = '<UNINITIALIZED>'
 
     def __compute_auth_message(
         self,

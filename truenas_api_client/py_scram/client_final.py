@@ -13,7 +13,7 @@ __all__ = ['ClientFinalMessage']
 
 
 class ClientFinalMessage:
-    __rfc_str = '<UNITIALIZED>'
+    __rfc_str = '<UNINITIALIZED>'
 
     def __compute_auth_message(
         self,

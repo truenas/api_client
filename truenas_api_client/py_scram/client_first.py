@@ -11,7 +11,7 @@ __all__ = ['ClientFirstMessage']
 
 
 class ClientFirstMessage:
-    __rfc_str = '<UNITIALIZED>'
+    __rfc_str = '<UNINITIALIZED>'
 
     def __generate_rfc_string(self):
         nonce_b64 = b64encode(self.nonce).decode()
