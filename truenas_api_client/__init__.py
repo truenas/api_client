@@ -1052,7 +1052,7 @@ def main():
     parser = get_parser()
     args = parser.parse_args()
 
-    if args.username and not args.password:
+    if args.username and not args.password and not args.api_key:
         args.password = getpass()
 
     def from_json(args):
