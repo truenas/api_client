@@ -30,9 +30,9 @@ Different versions of the API client support different features depending on you
 | API key file path support (`-K`) | ❌ | ❌ | ❌ | ✅ |
 | **SSL/TLS** |
 | SSL verification control (Python) | ❌ | ❌ | ✅ | ✅ |
-| `--insecure` CLI flag | ❌ | ❌ | ❌ | ✅ |
 | **midclt CLI** |
 | stdin payload (`-` argument) | ❌ | ❌ | ❌ | ✅ |
+| `--insecure` CLI flag | ❌ | ❌ | ❌ | ✅ |
 | **Python API** |
 | New-style jobs support | ❌ | ❌ | ✅ | ✅ |
 
