@@ -1007,7 +1007,9 @@ def get_parser():
     parser.add_argument('-P', '--password')
     parser.add_argument('-K', '--api-key')
     parser.add_argument('-t', '--timeout', type=int)
-    parser.add_argument('--insecure', help='Disable SSL verification (WARNING: not for production)', action='store_true')
+    parser.add_argument('--insecure',
+                        help='Disable SSL verification (WARNING: not for production)',
+                        action='store_true')
 
     subparsers = parser.add_subparsers(help='sub-command help', dest='name')
 
@@ -1148,7 +1150,8 @@ def main():
             print('SSL certificate verification failed.\n', file=sys.stderr)
             print('You can either:', file=sys.stderr)
             print('  1. Install the server\'s SSL certificate in your system\'s trust store', file=sys.stderr)
-            print('  2. Use the --insecure flag to disable SSL verification (not recommended for production)', file=sys.stderr)
+            print('  2. Use the --insecure flag to disable SSL verification (not recommended for production)',
+                  file=sys.stderr)
             sys.exit(1)
         except (FileNotFoundError, ConnectionRefusedError):
             print('Failed to run middleware call. Daemon not running?', file=sys.stderr)
