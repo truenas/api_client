@@ -1007,6 +1007,7 @@ def get_parser():
     parser.add_argument('-P', '--password')
     parser.add_argument('-K', '--api-key')
     parser.add_argument('-t', '--timeout', type=int)
+    parser.add_argument('--insecure', help='Disable SSL verification (WARNING: not for production)', action='store_true')
 
     subparsers = parser.add_subparsers(help='sub-command help', dest='name')
 
@@ -1078,7 +1079,7 @@ def main():
 
     if args.name == 'call':
         try:
-            with Client(uri=args.uri) as c:
+            with Client(uri=args.uri, verify_ssl=not args.insecure) as c:
                 try:
                     if args.username and args.password:
                         if not c.call('auth.login', args.username, args.password):
@@ -1143,16 +1144,22 @@ def main():
                         if e.extra:
                             pprint.pprint(e.extra, stream=sys.stderr)
                     sys.exit(1)
+        except ssl.SSLCertVerificationError:
+            print('SSL certificate verification failed.\n', file=sys.stderr)
+            print('You can either:', file=sys.stderr)
+            print('  1. Install the server\'s SSL certificate in your system\'s trust store', file=sys.stderr)
+            print('  2. Use the --insecure flag to disable SSL verification (not recommended for production)', file=sys.stderr)
+            sys.exit(1)
         except (FileNotFoundError, ConnectionRefusedError):
             print('Failed to run middleware call. Daemon not running?', file=sys.stderr)
             sys.exit(1)
     elif args.name == 'ping':
-        with Client(uri=args.uri) as c:
+        with Client(uri=args.uri, verify_ssl=not args.insecure) as c:
             if not (result := c.ping()):
                 sys.exit(1)
             print(result)
     elif args.name == 'subscribe':
-        with Client(uri=args.uri) as c:
+        with Client(uri=args.uri, verify_ssl=not args.insecure) as c:
 
             subscribe_payload = c.event_payload()
             event = subscribe_payload['event']
