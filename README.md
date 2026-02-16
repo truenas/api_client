@@ -14,11 +14,59 @@ The TrueNAS websocket client provides the command line tool `midclt` and the mea
 
 By default, communication facilitated by the API between the client and middleware now uses the [JSON-RPC 2.0](https://www.jsonrpc.org/specification) protocol. However, it is still possible to use the [legacy client](https://www.truenas.com/docs/api/scale_websocket_api.html) by passing a legacy uri, e.g. `'ws://some.truenas.address/websocket'` as opposed to `'ws://some.truenas.address/api/current'`.
 
+## Version Compatibility & Features
+
+Different versions of the API client support different features depending on your TrueNAS version. Choose the version that matches your TrueNAS server for optimal compatibility.
+
+### Feature Matrix
+
+| Feature | TS-24.10 | TS-25.04 | TS-25.10 | master<br/>(26.0-BETA) |
+|---------|:-----:|:-----:|:-----:|:-----:|
+| **Core Protocol** |
+| JSON-RPC 2.0 protocol | ❌ | ✅ | ✅ | ✅ |
+| **Authentication** |
+| SCRAM-SHA-512 API keys | ❌ | ❌ | ❌ | ✅ |
+| Username param for API keys | ❌ | ❌ | ❌ | ✅ |
+| API key file path support (`-K`) | ❌ | ❌ | ❌ | ✅ |
+| **SSL/TLS** |
+| SSL verification control (Python) | ❌ | ❌ | ✅ | ✅ |
+| `--insecure` CLI flag | ❌ | ❌ | ❌ | ✅ |
+| **midclt CLI** |
+| stdin payload (`-` argument) | ❌ | ❌ | ❌ | ✅ |
+| **Python API** |
+| New-style jobs support | ❌ | ❌ | ✅ | ✅ |
+
+**Note:** All versions are backwards-compatible with the legacy websocket server in TrueNAS 24.10 and earlier.
+
+### Version-Specific Notes
+
+**TS-24.10** (Latest: TS-24.10.2.4) - **EOL**
+- Legacy websocket protocol only
+- Stable release for TrueNAS 24.10.x series
+- Use for production TrueNAS 24.10 deployments
+
+**TS-25.04** (Latest: TS-25.04.2.6)
+- **Major update:** Introduces JSON-RPC 2.0 protocol support
+- Maintains backward compatibility with legacy websocket protocol
+- Stable release for TrueNAS 25.04.x series
+
+**TS-25.10** (Latest: TS-25.10.2)
+- Adds new-style jobs support for long-running operations
+- Adds `verify_ssl` parameter in Python API
+
+**master** (TrueNAS 26.0.0-BETA)
+- **Unstable development branch** - not recommended for production
+- SCRAM-SHA-512 authentication for enhanced API key security
+- Username parameter support for API key authentication
+- **midclt:** API key file path support - `-K` can now accept file paths directly
+- **midclt:** `--insecure` flag for development/testing with self-signed certificates
+- **midclt:** stdin processing for sensitive payloads (`-` argument)
+
 ## Getting Started
 
 TrueNAS comes with this client preinstalled, but it is also possible to use the TrueNAS websocket client from a non-TrueNAS host.
 
-**Important:** The `master` branch of this repository is unstable and under active development. For production use, you should install a version that matches your TrueNAS server's version (ideally) or the most recent TrueNAS stable release. Stable releases are indicated by git tags (e.g., `TS-25.10.1`, `TS-25.04.2.6`, `TS-24.10.2.4`).
+**Important:** The `master` branch of this repository is unstable and under active development. For production use, you should install a version that matches your TrueNAS server's version (ideally) or the most recent TrueNAS stable release. Stable releases are indicated by git tags (e.g., `TS-25.10.2`, `TS-25.04.2.6`, `TS-24.10.2.4`).
 
 On a non-TrueNAS host, ensure that Git is installed and run `pip install git+https://github.com/truenas/api_client.git@<tag>` (e.g., `pip install git+https://github.com/truenas/api_client.git@TS-25.10.1`) to install a specific stable version. You may alternatively clone this repository, checkout the appropriate tag, and run `pip install .`. Using a Python venv is recommended. Using `pipx` will automatically create a venv for you (i.e. `pipx install .`).
 
