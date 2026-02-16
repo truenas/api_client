@@ -28,6 +28,17 @@ The `midclt` command (not to be confused with the [TrueNAS CLI](https://github.c
 
 The client's default behavior is to connect to the localhost's middlewared socket. For a remote connection, e.g. from a Windows host, you must specify the `--uri` option and authenticate with either user credentials or an API key. For example: `midclt --uri ws://<TRUENAS_IP>/api/current -K key ...`
 
+#### Disable SSL certificate verification
+
+The `--insecure` option disables SSL certificate verification when connecting to a remote TrueNAS instance. This is useful for development or testing environments with self-signed certificates.
+
+**WARNING: The `--insecure` option should not be used in production environments as it increases vulnerability to man-in-the-middle attacks.**
+
+```bash
+# Only use for development/testing
+midclt --uri wss://test.truenas.local/api/current --insecure -K /home/bob/truenas_api_key.json call smb.config
+```
+
 #### Make local API calls
 
 ```
