@@ -18,7 +18,9 @@ By default, communication facilitated by the API between the client and middlewa
 
 TrueNAS comes with this client preinstalled, but it is also possible to use the TrueNAS websocket client from a non-TrueNAS host.
 
-On a non-TrueNAS host, ensure that Git is installed and run `pip install git+https://github.com/truenas/api_client.git` to automatically install dependencies. You may alternatively clone this repository and run `pip install .`. Using a Python venv is recommended. Using `pipx` will automatically create a venv for you (i.e. `pipx install .`).
+**Important:** The `master` branch of this repository is unstable and under active development. For production use, you should install a version that matches your TrueNAS server's version (ideally) or the most recent TrueNAS stable release. Stable releases are indicated by git tags (e.g., `TS-25.10.1`, `TS-25.04.2.6`, `TS-24.10.2.4`).
+
+On a non-TrueNAS host, ensure that Git is installed and run `pip install git+https://github.com/truenas/api_client.git@<tag>` (e.g., `pip install git+https://github.com/truenas/api_client.git@TS-25.10.1`) to install a specific stable version. You may alternatively clone this repository, checkout the appropriate tag, and run `pip install .`. Using a Python venv is recommended. Using `pipx` will automatically create a venv for you (i.e. `pipx install .`).
 
 ## Usage
 
@@ -27,6 +29,8 @@ On a non-TrueNAS host, ensure that Git is installed and run `pip install git+htt
 The `midclt` command (not to be confused with the [TrueNAS CLI](https://github.com/truenas/midcli)) provides a way to make direct API calls through the client. To view its syntax, enter `midclt -h`. The `-h` option can also be used with any of `midclt`'s subcommands.
 
 The client's default behavior is to connect to the localhost's middlewared socket. For a remote connection, e.g. from a Windows host, you must specify the `--uri` option and authenticate with either user credentials or an API key. For example: `midclt --uri ws://<TRUENAS_IP>/api/current -K key ...`
+
+**Note on Performance:** Each `midclt` command invocation incurs significant authentication and auditing overhead. Workloads that poll API endpoints or call endpoints frequently should use the Python API client directly with a persistent authenticated websocket connection (see [Scripting](#scripting) section below) rather than repeatedly invoking `midclt`.
 
 #### Disable SSL certificate verification
 
