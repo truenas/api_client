@@ -8,6 +8,7 @@ from json import JSONDecodeError
 from typing import TYPE_CHECKING, TypedDict
 
 from .ejson import loads
+from .exc import ClientException
 from .scram_impl import CryptoDatum, TNScramClient
 
 if TYPE_CHECKING:
@@ -210,9 +211,14 @@ def api_key_authenticate(
 
     try:
         available_mechanisms = c.call('auth.mechanism_choices')
-    except Exception as exc:
-        if 'Method does not exist' in str(exc):
+    except ClientException as exc:
+        if exc.error == 'Method does not exist':
             # We have an older version of TrueNAS. Minimally, API key authentication of some sort should be available
+            available_mechanisms = [MECHANISM_API_KEY_PLAIN]
+        elif "'NoneType' object has no attribute 'may_create_auth_token'" in exc.error:
+            # Due to a TrueNAS backend bug introduced in 25.04.2 and persisting through 25.10.2, unauthenticated calls
+            # to get auth mechanism choices are actually broken. Failure here definitely means SCRAM isn't supported on
+            # platform.
             available_mechanisms = [MECHANISM_API_KEY_PLAIN]
         else:
             raise
