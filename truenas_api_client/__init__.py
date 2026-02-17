@@ -73,7 +73,8 @@ class Client:
     """Implicit wrapper of either a `JSONRPCClient` or a `LegacyClient`."""
 
     def __init__(self, uri: str | None = None, reserved_ports=False, private_methods=False, py_exceptions=False,
-                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True):
+                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True,
+                 ping_interval: float | int = 0, reconnect: int = None):
         """Initialize either a `JSONRPCClient` or a `LegacyClient`.
 
         Use `JSONRPCClient` unless `uri` ends with '/websocket'.
@@ -88,6 +89,8 @@ class Client:
             call_timeout: Number of seconds to allow an API call before timing out. Can be overridden on a per-call
                 basis. Defaults to `CALL_TIMEOUT`.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
+            ping_interval: Number of seconds between WebSocket ping frames. Defaults to 0 (disabled).
+            reconnect: Attempt to reconnect every n seconds. Defaults to None (no reconnects).
 
         Raises:
             ClientException: `WSClient` timed out or some other connection error occurred.
@@ -101,7 +104,7 @@ class Client:
         self.uri_check(uri, py_exceptions)
 
         self.__client = client_class(uri, reserved_ports, private_methods, py_exceptions, log_py_exceptions,
-                                     call_timeout, verify_ssl)
+                                     call_timeout, verify_ssl, ping_interval, reconnect)
 
     def uri_check(self, uri: str | None, py_exceptions: bool):
         # We pickle_load when handling py_exceptions, reduce risk of MITM on client causing a pickle.load
@@ -125,7 +128,8 @@ class WSClient:
     The object used by `JSONRPCClient` to send and receive data.
 
     """
-    def __init__(self, url: str, *, client: 'JSONRPCClient', reserved_ports: bool = False, verify_ssl: bool = True):
+    def __init__(self, url: str, *, client: 'JSONRPCClient', reserved_ports: bool = False, verify_ssl: bool = True,
+                 ping_interval: float | int = 0, reconnect: int = None):
         """Initialize a `WSClient`.
 
         Args:
@@ -133,12 +137,16 @@ class WSClient:
             client: Reference to the `JSONRPCClient` instance that uses this object.
             reserved_ports: `True` if the `socket` should bind to a reserved port, i.e. 600-1024.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
+            ping_interval: Number of seconds between WebSocket ping frames. Defaults to 0 (disabled).
+            reconnect: Attempt to reconnect every n seconds. Defaults to None (no reconnects).
 
         """
         self.url = url
         self.client = client
         self.reserved_ports = reserved_ports
         self.verify_ssl = verify_ssl
+        self.ping_interval = ping_interval
+        self.reconnect = reconnect
 
         self.socket: socket.socket
         self.app: WebSocketApp
@@ -179,7 +187,7 @@ class WSClient:
             on_error=self._on_error,
             on_close=self._on_close,
         )
-        Thread(daemon=True, target=self.app.run_forever).start()
+        Thread(daemon=True, target=self.app.run_forever, kwargs={"ping_interval": self.ping_interval, "reconnect": self.reconnect}).start()
 
     def send(self, data: bytes | str):
         """Send data to the server by calling `WebSocketApp.send()`.
@@ -415,7 +423,8 @@ class JSONRPCClient:
 
     """
     def __init__(self, uri: str | None = None, reserved_ports=False, private_methods=False, py_exceptions=False,
-                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True):
+                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True,
+                 ping_interval: float | int = 0, reconnect: int = None):
         """Initialize a `JSONRPCClient`.
 
         Args:
@@ -428,6 +437,8 @@ class JSONRPCClient:
             call_timeout: Number of seconds to allow an API call before timing out. Can be overridden on a per-call
                 basis. Defaults to `CALL_TIMEOUT`.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
+            ping_interval: Number of seconds between WebSocket ping frames. Defaults to 0 (disabled).
+            reconnect: Attempt to reconnect every n seconds. Defaults to None (no reconnects).
 
         Raises:
             ClientException: `WSClient` timed out or some other connection error occurred.
@@ -459,6 +470,8 @@ class JSONRPCClient:
             client=self,
             reserved_ports=reserved_ports,
             verify_ssl=verify_ssl,
+            ping_interval=ping_interval,
+            reconnect=reconnect,
         )
         self._ws.connect()
         self._connected.wait(30)
