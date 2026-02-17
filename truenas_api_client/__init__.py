@@ -57,6 +57,13 @@ from websocket._socket import sock_opt
 from . import ejson as json
 from .auth_api_key import api_key_authenticate, APIKeyAuthMech
 from .config import CALL_TIMEOUT
+from .daemon import (
+    call_via_daemon,
+    ping_via_daemon,
+    run_daemon,
+    setup_daemon_logging,
+    stop_daemon,
+)
 from .exc import ReserveFDException, ClientException, ErrnoMixin, ValidationErrors, CallTimeout  # noqa
 from .legacy import LegacyClient
 from .jsonrpc import CollectionUpdateParams, ErrorObj, JobFields, JSONRPCError, JSONRPCMessage, TruenasError
@@ -1007,6 +1014,9 @@ def get_parser():
     parser.add_argument('-P', '--password')
     parser.add_argument('-K', '--api-key')
     parser.add_argument('-t', '--timeout', type=int)
+    parser.add_argument('-d', '--use-daemon',
+                        help='Use persistent daemon connection instead of creating a new connection',
+                        action='store_true')
     parser.add_argument('--insecure',
                         help='Disable SSL verification (WARNING: not for production)',
                         action='store_true')
@@ -1035,6 +1045,23 @@ def get_parser():
     iparser.add_argument('event')
     iparser.add_argument('-n', '--number', type=int, help='Number of events to wait before exit')
     iparser.add_argument('-t', '--timeout', type=int)
+
+    # daemon options
+    iparser = subparsers.add_parser('daemon', help='Start a persistent authenticated connection daemon')
+    iparser.add_argument(
+        '--lifetime',
+        type=int,
+        default=600,
+        help='Idle timeout in seconds before daemon exits (default: 600, 0 = no timeout)'
+    )
+    iparser.add_argument(
+        '--log-file',
+        type=str,
+        help='Log to file instead of syslog'
+    )
+
+    # daemon stop
+    subparsers.add_parser('daemon-stop', help='Stop a running daemon')
 
     return parser
 
@@ -1080,6 +1107,10 @@ def main():
                     yield i
 
     if args.name == 'call':
+        # Use daemon if requested
+        if args.use_daemon:
+            sys.exit(call_via_daemon(args, from_json))
+
         try:
             with Client(uri=args.uri, verify_ssl=not args.insecure) as c:
                 try:
@@ -1157,6 +1188,9 @@ def main():
             print('Failed to run middleware call. Daemon not running?', file=sys.stderr)
             sys.exit(1)
     elif args.name == 'ping':
+        if args.use_daemon:
+            sys.exit(ping_via_daemon(args))
+
         with Client(uri=args.uri, verify_ssl=not args.insecure) as c:
             if not (result := c.ping()):
                 sys.exit(1)
@@ -1184,6 +1218,39 @@ def main():
             if 'error' in subscribe_payload and subscribe_payload['error']:
                 raise ValueError(subscribe_payload['error'])
             sys.exit(0)
+    elif args.name == 'daemon':
+        # Start a persistent daemon
+        # Set up logging for daemon
+        log_file = getattr(args, 'log_file', None)
+        log_file_path = setup_daemon_logging(log_file=log_file, uri=args.uri, username=args.username)
+
+        try:
+            with Client(uri=args.uri, verify_ssl=not args.insecure) as c:
+                # Authenticate
+                try:
+                    if args.username and args.password:
+                        if not c.call('auth.login', args.username, args.password):
+                            raise ValueError('Invalid username or password')
+                    elif args.api_key:
+                        c.login_with_api_key(args.username, args.api_key)
+                except Exception as e:
+                    print(f"Failed to login: {e}", file=sys.stderr)
+                    sys.exit(1)
+
+                # Run daemon with authenticated client
+                run_daemon(c, args.lifetime, uri=args.uri, username=args.username, log_file=log_file_path)
+        except OSError as e:
+            print(f"Error starting daemon: {e}", file=sys.stderr)
+            sys.exit(1)
+        except (FileNotFoundError, ConnectionRefusedError):
+            print('Failed to connect to middleware. Is it running?', file=sys.stderr)
+            sys.exit(1)
+    elif args.name == 'daemon-stop':
+        # Stop a running daemon
+        if stop_daemon(uri=args.uri, username=args.username):
+            sys.exit(0)
+        else:
+            sys.exit(1)
     else:
         parser.print_help()
 
