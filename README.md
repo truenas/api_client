@@ -33,6 +33,7 @@ Different versions of the API client support different features depending on you
 | **midclt CLI** |
 | stdin payload (`-` argument) | ❌ | ❌ | ❌ | ✅ |
 | `--insecure` CLI flag | ❌ | ❌ | ❌ | ✅ |
+| Persistent daemon mode (experimental) | ❌ | ❌ | ❌ | ✅ |
 | **Python API** |
 | New-style jobs support | ❌ | ❌ | ✅ | ✅ |
 
@@ -61,6 +62,7 @@ Different versions of the API client support different features depending on you
 - **midclt:** API key file path support - `-K` can now accept file paths directly
 - **midclt:** `--insecure` flag for development/testing with self-signed certificates
 - **midclt:** stdin processing for sensitive payloads (`-` argument)
+- **midclt:** Persistent daemon mode (experimental) for reduced authentication overhead
 
 ## Getting Started
 
@@ -79,6 +81,34 @@ The `midclt` command (not to be confused with the [TrueNAS CLI](https://github.c
 The client's default behavior is to connect to the localhost's middlewared socket. For a remote connection, e.g. from a Windows host, you must specify the `--uri` option and authenticate with either user credentials or an API key. For example: `midclt --uri ws://<TRUENAS_IP>/api/current -K key ...`
 
 **Note on Performance:** Each `midclt` command invocation incurs significant authentication and auditing overhead. Workloads that poll API endpoints or call endpoints frequently should use the Python API client directly with a persistent authenticated websocket connection (see [Scripting](#scripting) section below) rather than repeatedly invoking `midclt`.
+
+#### Persistent Daemon Mode (Experimental)
+
+**EXPERIMENTAL: This feature is under active development and may change.**
+
+To reduce authentication overhead for frequent `midclt` invocations, you can run a persistent daemon that maintains an authenticated connection. Subsequent `midclt` calls use the `-d` flag to communicate with the daemon via Unix domain socket.
+
+```bash
+# Start daemon in background (authenticates once, logs to ~/.midclt/logs/)
+midclt -u wss://192.168.1.108/api/current -U admin -K /path/to/key.json daemon --lifetime 600 &
+
+# Use daemon for calls (no re-authentication needed, but URI/username required to find socket)
+midclt -u wss://192.168.1.108/api/current -U admin -d call system.info
+midclt -u wss://192.168.1.108/api/current -U admin -d -j call pool.dataset.lock mypool/mydataset
+
+# Stop daemon
+midclt -u wss://192.168.1.108/api/current -U admin daemon-stop
+```
+
+**Daemon Options:**
+- `--lifetime SECONDS`: Idle timeout before daemon exits (default: 600, 0 = no timeout)
+- `--log-file PATH`: Log to file instead of default (`~/.midclt/logs/daemon-{id}.log`)
+
+**Notes:**
+- Daemon uses Unix domain sockets (Linux/macOS/BSD only)
+- Each URI/username combination gets a unique daemon instance
+- Socket and logs stored in `~/.midclt/`
+- Subscription commands not supported via daemon
 
 #### Disable SSL certificate verification
 
