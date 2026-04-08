@@ -14,7 +14,7 @@ import sys
 from typing import Any, final, Mapping
 
 
-MIDDLEWARE_RUN_DIR = '/var/run/middleware'
+MIDDLEWARE_RUN_DIR = '/run/middleware'
 
 
 @final
