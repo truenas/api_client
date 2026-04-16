@@ -1009,7 +1009,7 @@ class JSONRPCClient:
             otp_token: one-time password token for two-factor authentication
 
         Raises:
-            ValueError: authentication failed or OTP required
+            ValueError: authentication failed, invalid OTP, or OTP required but not provided
         """
         try:
             resp = self.call('auth.login_ex', {
@@ -1034,7 +1034,7 @@ class JSONRPCClient:
                         'Two-factor authentication is required for this account. '
                         'Call login_with_password again with otp_token specified.'
                     )
-                otp_resp = self.call('auth.login_ex', {
+                otp_resp = self.call('auth.login_ex_continue', {
                     'mechanism': 'OTP_TOKEN',
                     'otp_token': otp_token,
                 })

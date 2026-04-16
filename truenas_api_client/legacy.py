@@ -489,17 +489,20 @@ class LegacyClient:
         self,
         username: str,
         api_key: str,
-        auth_mechanism: APIKeyAuthMech = APIKeyAuthMech.AUTO
+        auth_mechanism: APIKeyAuthMech = APIKeyAuthMech.PLAIN
     ) -> None:
         """
-        Helper function to authenticate via API key to the truenas server.
+        Helper function to authenticate via API key to the truenas server. Legacy TrueNAS servers
+        had a significantly different API key implementation. They were de-facto linked to the root
+        account with a per-key server-side allowlist defined that declared what middleware methods
+        were authorized for the key.
 
         Args:
-            username: name of the user that the API key is associated with
-                NOTE: this is required for SCRAM authentication
+            username: this parameter is ignored for legacy clients. It exists to ensure consistent
+               function signatures for API consumers.
             api_key: either the key material or an absolute path to the file where it is stored
-            auth_mechanism: one of "AUTO", "SCRAM", "PLAIN" specifying the type of authentication
-                to perform. AUTO will use SCRAM if support for it is detected.
+            auth_mechanism: one of "AUTO", "PLAIN" specifying the type of authentication. A ValueError
+               will be raised if SCRAM is specified.
 
         Returns:
             None
@@ -507,6 +510,9 @@ class LegacyClient:
         Raises:
             ValueError: an error occurred during authentication.
         """
+        if auth_mechanism == APIKeyAuthMech.SCRAM:
+            raise ValueError('Legacy TrueNAS servers do not implement SCRAM authentication')
+
         api_key_authenticate(self, auth_mechanism, username, api_key)
 
     def login_with_password(self, username: str, password: str, *, otp_token: str | None = None) -> None:
