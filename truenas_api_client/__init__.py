@@ -1009,7 +1009,8 @@ class JSONRPCClient:
             otp_token: one-time password token for two-factor authentication
 
         Raises:
-            ValueError: authentication failed, invalid OTP, or OTP required but not provided
+            ValueError: authentication failed, invalid OTP, OTP required but not provided,
+                account credentials expired, account lacks API access, or redirect required
         """
         try:
             resp = self.call('auth.login_ex', {
@@ -1025,6 +1026,9 @@ class JSONRPCClient:
                 return
             raise
 
+        self._handle_login_ex_response(resp, otp_token)
+
+    def _handle_login_ex_response(self, resp: dict, otp_token: str | None) -> None:
         match resp['response_type']:
             case 'SUCCESS':
                 return
@@ -1038,8 +1042,17 @@ class JSONRPCClient:
                     'mechanism': 'OTP_TOKEN',
                     'otp_token': otp_token,
                 })
-                if otp_resp['response_type'] != 'SUCCESS':
-                    raise ValueError('Invalid one-time password token')
+                self._handle_login_ex_response(otp_resp, None)
+            case 'REDIRECT':
+                urls = ', '.join(resp.get('urls', []))
+                raise ValueError(
+                    f'Authentication must be performed on active storage controller. '
+                    f'Redirect URLs: {urls}'
+                )
+            case 'EXPIRED':
+                raise ValueError('Account credentials have expired')
+            case 'DENIED':
+                raise ValueError('Account does not have API access')
             case _:
                 raise ValueError('Invalid username or password')
 
