@@ -801,7 +801,7 @@ class JSONRPCClient:
             if self._new_style_jobs:
                 # We always subscribe to this since any method call can be a job now.
                 # We ignore the ENOTAUTHENTICATED error since:
-                # * `core.subscribe` made before `auth.login` will trigger it
+                # * `core.subscribe` made before authentication will trigger it
                 # * With new-style jobs, there is no issue if we fail to subscribe to `core.get_jobs` since the
                 #   method return values or call errors will be reported though the normal JSON-RPC 2.0 protocol.
                 self._jobs_subscribe(silent=True)
@@ -996,6 +996,45 @@ class JSONRPCClient:
         """
         api_key_authenticate(self, auth_mechanism, username, api_key)
 
+    def login_with_password(self, username: str, password: str) -> None:
+        """
+        Authenticate via username and password.
+
+        Uses auth.login_ex with PASSWORD_PLAIN mechanism, falling back to
+        auth.login for pre-25.04 TrueNAS servers.
+
+        Args:
+            username: account username
+            password: account password
+
+        Raises:
+            ValueError: authentication failed or OTP required
+        """
+        try:
+            resp = self.call('auth.login_ex', {
+                'mechanism': 'PASSWORD_PLAIN',
+                'username': username,
+                'password': password,
+            })
+        except ClientException as exc:
+            if exc.error == 'Method does not exist':
+                # Pre-25.04 server
+                if not self.call('auth.login', username, password):
+                    raise ValueError('Invalid username or password')
+                return
+            raise
+
+        match resp['response_type']:
+            case 'SUCCESS':
+                return
+            case 'OTP_REQUIRED':
+                raise ValueError(
+                    'Two-factor authentication is required for this account. '
+                    'Use auth.login_ex and auth.login_ex_continue for OTP flow.'
+                )
+            case _:
+                raise ValueError('Invalid username or password')
+
 
 def get_parser():
     """Construct the argument parser for `midclt`."""
@@ -1084,8 +1123,7 @@ def main():
             with Client(uri=args.uri, verify_ssl=not args.insecure) as c:
                 try:
                     if args.username and args.password:
-                        if not c.call('auth.login', args.username, args.password):
-                            raise ValueError('Invalid username or password')
+                        c.login_with_password(args.username, args.password)
                     elif args.api_key:
                         c.login_with_api_key(args.username, args.api_key)
                 except Exception as e:
