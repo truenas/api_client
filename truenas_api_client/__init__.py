@@ -1038,57 +1038,154 @@ class JSONRPCClient:
 
 def get_parser():
     """Construct the argument parser for `midclt`."""
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        prog='midclt',
+        description=(
+            'Command-line client for the TrueNAS middleware API. '
+            'When run locally on a TrueNAS server, midclt uses the middleware '
+            'UNIX socket by default. Pass --uri to reach a remote server over '
+            'a WebSocket: the JSON-RPC 2.0 endpoint on TrueNAS 25.04 and later '
+            '(e.g. ws://host/api/current), or the legacy WebSocket endpoint on '
+            'earlier releases (e.g. ws://host/websocket).'
+        ),
+        epilog=(
+            'Examples:\n'
+            '  midclt ping\n'
+            '  midclt call system.info\n'
+            '  midclt call user.query \'[["username", "=", "root"]]\'\n'
+            '  midclt -t 120 call interface.sync true\n'
+            '  midclt --job --job-print description call pool.import_on_boot\n'
+            '  midclt -u ws://nas.example/api/current -U admin -P secret call system.info\n'
+            '  midclt -K /root/apikey.json call user.create - < new_user.json\n'
+            '  midclt subscribe -n 1 core.get_jobs\n'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
 
     # midclt options
-    parser.add_argument('-u', '--uri')
-    parser.add_argument('-U', '--username')
-    parser.add_argument('-P', '--password')
-    parser.add_argument('-K', '--api-key')
-    parser.add_argument('-t', '--timeout', type=int)
-    parser.add_argument('--insecure',
-                        help='Disable SSL verification (WARNING: not for production)',
-                        action='store_true')
+    parser.add_argument(
+        '-u', '--uri', metavar='URI',
+        help=(
+            'WebSocket URI of the TrueNAS server. Use ws(s)://host/api/current '
+            'for TrueNAS 25.04 and later (JSON-RPC 2.0), or ws(s)://host/websocket '
+            'for earlier releases (legacy protocol). Defaults to the local '
+            'middleware UNIX socket when run on a TrueNAS server.'
+        ),
+    )
+    parser.add_argument(
+        '-U', '--username', metavar='USERNAME',
+        help='Username for authentication. Used with --password or --api-key.',
+    )
+    parser.add_argument(
+        '-P', '--password', metavar='PASSWORD',
+        help=(
+            'Password for authentication. Prompted interactively if '
+            '--username is given without --password or --api-key.'
+        ),
+    )
+    parser.add_argument(
+        '-K', '--api-key', metavar='KEY',
+        help='API key string, or path to a file containing the key.',
+    )
+    parser.add_argument(
+        '-t', '--timeout', type=int, metavar='SECONDS',
+        help='Timeout in seconds for the API call.',
+    )
+    parser.add_argument(
+        '--insecure', action='store_true',
+        help='Disable SSL certificate verification (WARNING: not for production).',
+    )
 
-    subparsers = parser.add_subparsers(help='sub-command help', dest='name')
+    subparsers = parser.add_subparsers(
+        dest='name', metavar='<subcommand>',
+        title='subcommands',
+    )
 
     # call options
-    iparser = subparsers.add_parser('call', help='Call a TrueNAS API method')
-    iparser.add_argument('-q', '--quiet', help='Don\'t print error info', action='store_true')
-    iparser.add_argument('-j', '--job', help='Call a long-running job', action='store_true')
+    call_description = (
+        'Invoke a TrueNAS API method. Any arguments after the method name are '
+        'parsed as JSON when possible and otherwise passed as raw strings. '
+        "Use '-' as the final argument to read a single JSON payload from stdin, "
+        'which is useful for keeping secrets out of shell history and process listings.'
+    )
+    iparser = subparsers.add_parser(
+        'call',
+        help='Call a TrueNAS API method.',
+        description=call_description,
+    )
     iparser.add_argument(
-        '-jp',
-        '--job-print',
-        help='Method to print job progress',
+        '-q', '--quiet', action='store_true',
+        help='Suppress error output on API call failure.',
+    )
+    iparser.add_argument(
+        '-j', '--job', action='store_true',
+        help='Treat the call as a long-running job and track progress until completion.',
+    )
+    iparser.add_argument(
+        '-jp', '--job-print',
         type=str,
         choices=('progressbar', 'description'),
         default='progressbar',
+        help=(
+            "How to render job progress: 'progressbar' (animated bar, default) "
+            "or 'description' (status text lines, suitable for systemd units and logs)."
+        ),
     )
-    iparser.add_argument('method', nargs='+')
+    iparser.add_argument(
+        'method', nargs='+', metavar='METHOD',
+        help=(
+            'API method name followed by zero or more arguments. Each argument '
+            "is parsed as JSON when possible, otherwise passed as a string. "
+            "Use '-' as the final argument to read one JSON payload from stdin."
+        ),
+    )
 
     # ping
-    subparsers.add_parser('ping', help='Test connection to the server')
+    subparsers.add_parser(
+        'ping',
+        help='Call core.ping on the server and print the response.',
+        description=(
+            "Call the core.ping API method to verify connectivity. Prints 'pong' "
+            'on success. This endpoint does not require authentication and is '
+            'rate-limited on the server side.'
+        ),
+    )
 
     # subscribe options
-    iparser = subparsers.add_parser('subscribe', help='Receive event messages in a continuous stream')
-    iparser.add_argument('event')
-    iparser.add_argument('-n', '--number', type=int, help='Number of events to wait before exit')
-    iparser.add_argument('-t', '--timeout', type=int)
+    iparser = subparsers.add_parser(
+        'subscribe',
+        help='Receive event messages in a continuous stream.',
+        description=(
+            'Subscribe to a middleware event and print each message as it arrives. '
+            'Runs until interrupted, until --number events have been received, '
+            'or until --timeout seconds have elapsed.'
+        ),
+    )
+    iparser.add_argument(
+        'event', metavar='EVENT',
+        help='Event name to subscribe to (e.g. core.get_jobs).',
+    )
+    iparser.add_argument(
+        '-n', '--number', type=int, metavar='N',
+        help='Exit after receiving this many events.',
+    )
+    iparser.add_argument(
+        '-t', '--timeout', type=int, metavar='SECONDS',
+        help='Stop waiting after this many seconds.',
+    )
 
     return parser
 
 
 def main():
-    """The entry point for midclt. Run `midclt -h` to see usage.
+    """Entry point for the ``midclt`` console script.
 
-    Sub-commands:
-        call, ping, subscribe
-
-    Options:
-        -h, -u URI, -U USERNAME, -P PASSWORD, -K API_KEY, -t TIMEOUT
+    Run ``midclt -h`` for subcommands, options, and examples. See :func:`get_parser`
+    for the authoritative argument definitions (which also generate the manpage).
 
     Raises:
-        ValueError: Login failed (`midclt call`) or a subscription terminated with an error (`midclt subscribe`).
+        ValueError: Login failed (``midclt call``) or a subscription terminated with
+            an error (``midclt subscribe``).
 
     """
     parser = get_parser()

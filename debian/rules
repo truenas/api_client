@@ -6,4 +6,20 @@ export PYBUILD_NAME=truenas-api-client
 %:
 	dh $@ --with python3 --buildsystem=pybuild
 
+override_dh_auto_build:
+	dh_auto_build
+	PYTHONPATH=. argparse-manpage \
+		--module=truenas_api_client \
+		--function=get_parser \
+		--prog=midclt \
+		--project-name=truenas-api-client \
+		--author="TrueNAS Engineering" \
+		--author-email=dev@truenas.com \
+		--url=https://github.com/truenas/api_client \
+		--output=debian/midclt.1
+
+override_dh_auto_clean:
+	dh_auto_clean
+	rm -f debian/midclt.1
+
 override_dh_auto_test:
