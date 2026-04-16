@@ -20,6 +20,7 @@ from websocket._http import connect, proxy_info
 from websocket._socket import sock_opt
 
 from . import ejson as json
+from .auth_api_key import APIKeyAuthMech, api_key_authenticate
 from .config import CALL_TIMEOUT
 from .exc import ReserveFDException, ClientException, ValidationErrors, CallTimeout
 from .utils import MIDDLEWARE_RUN_DIR, undefined, UndefinedType, set_socket_options
@@ -483,6 +484,54 @@ class LegacyClient:
         if not event.wait(timeout):
             return False
         return True
+
+    def login_with_api_key(
+        self,
+        username: str,
+        api_key: str,
+        auth_mechanism: APIKeyAuthMech = APIKeyAuthMech.PLAIN
+    ) -> None:
+        """
+        Helper function to authenticate via API key to the truenas server. Legacy TrueNAS servers
+        had a significantly different API key implementation. They were de-facto linked to the root
+        account with a per-key server-side allowlist defined that declared what middleware methods
+        were authorized for the key.
+
+        Args:
+            username: this parameter is ignored for legacy clients. It exists to ensure consistent
+               function signatures for API consumers.
+            api_key: either the key material or an absolute path to the file where it is stored
+            auth_mechanism: one of "AUTO", "PLAIN" specifying the type of authentication. A ValueError
+               will be raised if SCRAM is specified.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: an error occurred during authentication.
+        """
+        if auth_mechanism == APIKeyAuthMech.SCRAM:
+            raise ValueError('Legacy TrueNAS servers do not implement SCRAM authentication')
+
+        api_key_authenticate(self, auth_mechanism, username, api_key)
+
+    def login_with_password(self, username: str, password: str, *, otp_token: str | None = None) -> None:
+        """
+        Authenticate via username and password.
+
+        Uses auth.login which accepts an optional otp_token for
+        two-factor authentication.
+
+        Args:
+            username: account username
+            password: account password
+            otp_token: one-time password token for two-factor authentication
+
+        Raises:
+            ValueError: authentication failed
+        """
+        if not self.call('auth.login', username, password, otp_token):
+            raise ValueError('Invalid username or password')
 
     def close(self):
         self._ws.close()

@@ -996,7 +996,7 @@ class JSONRPCClient:
         """
         api_key_authenticate(self, auth_mechanism, username, api_key)
 
-    def login_with_password(self, username: str, password: str) -> None:
+    def login_with_password(self, username: str, password: str, *, otp_token: str | None = None) -> None:
         """
         Authenticate via username and password.
 
@@ -1006,9 +1006,11 @@ class JSONRPCClient:
         Args:
             username: account username
             password: account password
+            otp_token: one-time password token for two-factor authentication
 
         Raises:
-            ValueError: authentication failed or OTP required
+            ValueError: authentication failed, invalid OTP, OTP required but not provided,
+                account credentials expired, account lacks API access, or redirect required
         """
         try:
             resp = self.call('auth.login_ex', {
@@ -1019,19 +1021,38 @@ class JSONRPCClient:
         except ClientException as exc:
             if exc.error == 'Method does not exist':
                 # Pre-25.04 server
-                if not self.call('auth.login', username, password):
+                if not self.call('auth.login', username, password, otp_token):
                     raise ValueError('Invalid username or password')
                 return
             raise
 
+        self._handle_login_ex_response(resp, otp_token)
+
+    def _handle_login_ex_response(self, resp: dict, otp_token: str | None) -> None:
         match resp['response_type']:
             case 'SUCCESS':
                 return
             case 'OTP_REQUIRED':
+                if otp_token is None:
+                    raise ValueError(
+                        'Two-factor authentication is required for this account. '
+                        'Call login_with_password again with otp_token specified.'
+                    )
+                otp_resp = self.call('auth.login_ex_continue', {
+                    'mechanism': 'OTP_TOKEN',
+                    'otp_token': otp_token,
+                })
+                self._handle_login_ex_response(otp_resp, None)
+            case 'REDIRECT':
+                urls = ', '.join(resp.get('urls', []))
                 raise ValueError(
-                    'Two-factor authentication is required for this account. '
-                    'Use auth.login_ex and auth.login_ex_continue for OTP flow.'
+                    f'Authentication must be performed on active storage controller. '
+                    f'Redirect URLs: {urls}'
                 )
+            case 'EXPIRED':
+                raise ValueError('Account credentials have expired')
+            case 'DENIED':
+                raise ValueError('Account does not have API access')
             case _:
                 raise ValueError('Invalid username or password')
 
