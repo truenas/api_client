@@ -996,7 +996,7 @@ class JSONRPCClient:
         """
         api_key_authenticate(self, auth_mechanism, username, api_key)
 
-    def login_with_password(self, username: str, password: str) -> None:
+    def login_with_password(self, username: str, password: str, *, otp_token: str | None = None) -> None:
         """
         Authenticate via username and password.
 
@@ -1006,6 +1006,7 @@ class JSONRPCClient:
         Args:
             username: account username
             password: account password
+            otp_token: one-time password token for two-factor authentication
 
         Raises:
             ValueError: authentication failed or OTP required
@@ -1019,7 +1020,7 @@ class JSONRPCClient:
         except ClientException as exc:
             if exc.error == 'Method does not exist':
                 # Pre-25.04 server
-                if not self.call('auth.login', username, password):
+                if not self.call('auth.login', username, password, otp_token):
                     raise ValueError('Invalid username or password')
                 return
             raise
@@ -1028,10 +1029,17 @@ class JSONRPCClient:
             case 'SUCCESS':
                 return
             case 'OTP_REQUIRED':
-                raise ValueError(
-                    'Two-factor authentication is required for this account. '
-                    'Use auth.login_ex and auth.login_ex_continue for OTP flow.'
-                )
+                if otp_token is None:
+                    raise ValueError(
+                        'Two-factor authentication is required for this account. '
+                        'Call login_with_password again with otp_token specified.'
+                    )
+                otp_resp = self.call('auth.login_ex', {
+                    'mechanism': 'OTP_TOKEN',
+                    'otp_token': otp_token,
+                })
+                if otp_resp['response_type'] != 'SUCCESS':
+                    raise ValueError('Invalid one-time password token')
             case _:
                 raise ValueError('Invalid username or password')
 
