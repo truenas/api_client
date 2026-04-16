@@ -135,12 +135,10 @@ The TrueNAS API client can also be used in Python scripts.
 ```python
 from truenas_api_client import Client
 
-with Client() as c:  # Local IPC
-      print(c.ping())  # pong
-      user = {"full_name": "John Doe", "username": "user", "password": "pass", "group_create": True}
-      entry_id = c.call("user.create", user)
-      user = c.call("user.get_instance", entry_id)
-      print(user["full_name"])  # John Doe
+with Client() as c:
+      user = {"full_name": "John Doe", "username": "jdoe", "password": "Canary", "group_create": True}
+      new_user_entry = c.call("user.create", user)
+      print(new_user_entry["full_name"])  # John Doe
 ```
 
 #### Login with a user account or an API key
