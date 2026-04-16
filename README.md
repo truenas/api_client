@@ -20,55 +20,58 @@ Different versions of the API client support different features depending on you
 
 ### Feature Matrix
 
-| Feature | TS-24.10 | TS-25.04 | TS-25.10 | master<br/>(26.0-BETA) |
-|---------|:-----:|:-----:|:-----:|:-----:|
+| Feature | 24.10 | 25.04 | 25.10 | 26.0<br/>(BETA) | master<br/>(27.0-ALPHA) |
+|---------|:-----:|:-----:|:-----:|:-----:|:-----:|
 | **Core Protocol** |
-| JSON-RPC 2.0 protocol | ❌ | ✅ | ✅ | ✅ |
+| JSON-RPC 2.0 protocol | ❌ | ✅ | ✅ | ✅ | ✅ |
 | **Authentication** |
-| SCRAM-SHA-512 API keys | ❌ | ❌ | ❌ | ✅ |
-| Username param for API keys | ❌ | ❌ | ❌ | ✅ |
-| API key file path support (`-K`) | ❌ | ❌ | ❌ | ✅ |
+| SCRAM-SHA-512 API keys | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Username param for API keys | ❌ | ❌ | ❌ | ✅ | ✅ |
+| API key file path support (`-K`) | ❌ | ❌ | ❌ | ✅ | ✅ |
 | **SSL/TLS** |
-| SSL verification control (Python) | ❌ | ❌ | ✅ | ✅ |
+| SSL verification control (Python) | ❌ | ❌ | ✅ | ✅ | ✅ |
 | **midclt CLI** |
-| stdin payload (`-` argument) | ❌ | ❌ | ❌ | ✅ |
-| `--insecure` CLI flag | ❌ | ❌ | ❌ | ✅ |
+| stdin payload (`-` argument) | ❌ | ❌ | ❌ | ✅ | ✅ |
+| `--insecure` CLI flag | ❌ | ❌ | ❌ | ✅ | ✅ |
 | **Python API** |
-| New-style jobs support | ❌ | ❌ | ✅ | ✅ |
+| New-style jobs support | ❌ | ❌ | ✅ | ✅ | ✅ |
 
 **Note:** All versions are backwards-compatible with the legacy websocket server in TrueNAS 24.10 and earlier.
 
 ### Version-Specific Notes
 
-**TS-24.10** (Latest: TS-24.10.2.4) - **EOL**
+**24.10** (Latest: 24.10.2.4) - **EOL**
 - Legacy websocket protocol only
 - Stable release for TrueNAS 24.10.x series
 - Use for production TrueNAS 24.10 deployments
 
-**TS-25.04** (Latest: TS-25.04.2.6)
+**25.04** (Latest: 25.04.2.6)
 - **Major update:** Introduces JSON-RPC 2.0 protocol support
 - Maintains backward compatibility with legacy websocket protocol
 - Stable release for TrueNAS 25.04.x series
 
-**TS-25.10** (Latest: TS-25.10.2)
+**25.10** (Latest: 25.10.3)
 - Adds new-style jobs support for long-running operations
 - Adds `verify_ssl` parameter in Python API
 
-**master** (TrueNAS 26.0.0-BETA)
-- **Unstable development branch** - not recommended for production
+**26.0** (Latest: 26.0.0-BETA.1)
 - SCRAM-SHA-512 authentication for enhanced API key security
 - Username parameter support for API key authentication
 - **midclt:** API key file path support - `-K` can now accept file paths directly
 - **midclt:** `--insecure` flag for development/testing with self-signed certificates
 - **midclt:** stdin processing for sensitive payloads (`-` argument)
 
+**master** (TrueNAS 27.0-ALPHA)
+- **Unstable development branch** - not recommended for production
+- Inherits all 26.0 features
+
 ## Getting Started
 
 TrueNAS comes with this client preinstalled, but it is also possible to use the TrueNAS websocket client from a non-TrueNAS host.
 
-**Important:** The `master` branch of this repository is unstable and under active development. For production use, you should install a version that matches your TrueNAS server's version (ideally) or the most recent TrueNAS stable release. Stable releases are indicated by git tags (e.g., `TS-25.10.2`, `TS-25.04.2.6`, `TS-24.10.2.4`).
+**Important:** The `master` branch of this repository is unstable and under active development. For production use, you should install a version that matches your TrueNAS server's version (ideally) or the most recent TrueNAS stable release. Stable releases are indicated by git tags (e.g., `TS-26.0.0-BETA.1`, `TS-25.10.3`, `TS-25.04.2.6`, `TS-24.10.2.4`).
 
-On a non-TrueNAS host, ensure that Git is installed and run `pip install git+https://github.com/truenas/api_client.git@<tag>` (e.g., `pip install git+https://github.com/truenas/api_client.git@TS-25.10.1`) to install a specific stable version. You may alternatively clone this repository, checkout the appropriate tag, and run `pip install .`. Using a Python venv is recommended. Using `pipx` will automatically create a venv for you (i.e. `pipx install .`).
+On a non-TrueNAS host, ensure that Git is installed and run `pip install git+https://github.com/truenas/api_client.git@<tag>` (e.g., `pip install git+https://github.com/truenas/api_client.git@TS-25.10.3`) to install a specific stable version. You may alternatively clone this repository, checkout the appropriate tag, and run `pip install .`. Using a Python venv is recommended. Using `pipx` will automatically create a venv for you (i.e. `pipx install .`).
 
 ## Usage
 
