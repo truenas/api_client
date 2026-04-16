@@ -145,7 +145,7 @@ with Client() as c:  # Local IPC
 ```python
 # User account
 with Client(uri="ws://some.other.truenas/api/current") as c:
-      c.call("auth.login", username, password)
+      c.login_with_password(username, password)
 
 # API key
 with Client(uri="ws://some.other.truenas/api/current") as c:
