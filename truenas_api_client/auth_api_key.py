@@ -179,11 +179,34 @@ def get_key_material(key: str) -> KeyData:
         raise ValueError(f'Missing required field in key data: {e}') from e
 
 
+def _raise_for_api_key_response(resp: dict) -> None:
+    """Raise ValueError with a specific message for non-SUCCESS API_KEY_PLAIN responses."""
+    match resp['response_type']:
+        case 'SUCCESS':
+            return
+        case 'AUTH_ERR':
+            raise ValueError('Invalid API key')
+        case 'EXPIRED':
+            raise ValueError('API key has expired')
+        case 'DENIED':
+            raise ValueError('Account does not have API access')
+        case 'REDIRECT':
+            urls = ', '.join(resp.get('urls', []))
+            raise ValueError(
+                f'Authentication must be performed on active storage controller. '
+                f'Redirect URLs: {urls}'
+            )
+        case other:
+            raise ValueError(f'{other}: unexpected server response')
+
+
 def api_key_authenticate(
     c: 'Client',
     auth_mechanism: APIKeyAuthMech,
     username: str,
-    key_in: str | None
+    key_in: str | None,
+    *,
+    use_legacy_endpoint: bool = False,
 ) -> None:
     """
     Perform API key authentication on an already-existing middleware
@@ -192,9 +215,14 @@ def api_key_authenticate(
     Arguments:
         c: truenas_api_client.Client() instance
         auth_mechanism: one of 'AUTO', 'SCRAM', or 'PLAIN'
-        username: name of the user that the API key is associated with (required for SCRAM)
+        username: name of the user that the API key is associated with (required for SCRAM
+            and for PLAIN when `use_legacy_endpoint` is False)
         key_in: either the actual key material or an absolute path to a file
             in which it's located
+        use_legacy_endpoint: when False (default, for JSONRPC clients) the PLAIN flow
+            uses `auth.login_ex` with `API_KEY_PLAIN`. When True (for LegacyClient talking
+            to old TrueNAS over `/websocket`) the PLAIN flow uses `auth.login_with_api_key`
+            because the server predates `auth.login_ex`.
 
     Returns:
         None
@@ -243,9 +271,21 @@ def api_key_authenticate(
         # Type narrowing: key_data is RawKeyData here
         assert auth_data.key_data_type == KeyDataType.RAW
         legacy_key_data: RawKeyData = auth_data.key_data  # type: ignore[assignment]
-        if not c.call('auth.login_with_api_key', legacy_key_data['raw_key']):
-            raise ValueError('Invalid API key')
 
+        if use_legacy_endpoint:
+            # Legacy server reached via /websocket has no auth.login_ex.
+            if not c.call('auth.login_with_api_key', legacy_key_data['raw_key']):
+                raise ValueError('Invalid API key')
+            return
+
+        if not username:
+            raise ValueError('username is required for plain API key authentication')
+        resp = c.call('auth.login_ex', {
+            'mechanism': MECHANISM_API_KEY_PLAIN,
+            'username': username,
+            'api_key': legacy_key_data['raw_key'],
+        })
+        _raise_for_api_key_response(resp)
         return
 
     # We may have pre-computed keys for server-side or be dealing with raw API

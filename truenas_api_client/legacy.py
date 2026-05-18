@@ -513,7 +513,7 @@ class LegacyClient:
         if auth_mechanism == APIKeyAuthMech.SCRAM:
             raise ValueError('Legacy TrueNAS servers do not implement SCRAM authentication')
 
-        api_key_authenticate(self, auth_mechanism, username, api_key)
+        api_key_authenticate(self, auth_mechanism, username, api_key, use_legacy_endpoint=True)
 
     def login_with_password(self, username: str, password: str, *, otp_token: str | None = None) -> None:
         """
