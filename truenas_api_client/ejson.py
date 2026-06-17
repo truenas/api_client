@@ -16,6 +16,7 @@ Example::
 
 """
 import calendar
+import dataclasses
 from datetime import date, datetime, time, timedelta, timezone
 from ipaddress import IPv4Interface, IPv6Interface
 import json
@@ -42,6 +43,7 @@ class JSONEncoder(json.JSONEncoder):
     | datetime.datetime | {"$date": number[Total milliseconds since EPOCH]} |
     | datetime.time     | {"$time": string[HH:MM:SS]}                       |
     | set               | {"$set": array[items...]}                         |
+    | dataclass         | object (recursively, via dataclasses.asdict)      |
 
     Note: When serializing Python sets, the order that the elements appear in
     the JSON array is undefined.
@@ -65,6 +67,8 @@ class JSONEncoder(json.JSONEncoder):
             return {'$ipv6_interface': str(obj)}
         elif BaseModel is not None and isinstance(obj, BaseModel):
             return obj.model_dump()
+        elif dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+            return dataclasses.asdict(obj)
         return super(JSONEncoder, self).default(obj)
 
 
