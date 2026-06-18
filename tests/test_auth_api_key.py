@@ -6,15 +6,21 @@ without requiring a live TrueNAS server connection.
 """
 
 import json
+import socket
+import ssl
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import truenas_api_client.auth_api_key as auth_api_key
+from truenas_api_client import WSClient, get_parser
 from truenas_api_client.auth_api_key import (
     KeyData,
     KeyDataType,
     RAW_KEY_SEPARATOR,
     _parse_ini_config,
+    _resolve_channel_binding,
     get_key_material,
 )
 
@@ -364,6 +370,111 @@ class TestKeyDataType(unittest.TestCase):
         """Test KeyDataType can be compared."""
         self.assertEqual(KeyDataType.RAW, KeyDataType.RAW)
         self.assertNotEqual(KeyDataType.RAW, KeyDataType.PRECOMPUTED)
+
+
+class TestPeerCertAccessor(unittest.TestCase):
+    """Test WSClient.get_peer_cert_der (source of the SCRAM channel binding)."""
+
+    @staticmethod
+    def _ws():
+        return WSClient("ws+unix:///run/middleware.sock", client=None)
+
+    def test_no_socket_returns_none(self):
+        # Before connect() no socket has been assigned.
+        self.assertIsNone(self._ws().get_peer_cert_der())
+
+    def test_non_tls_socket_returns_none(self):
+        ws = self._ws()
+        ws.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            self.assertIsNone(ws.get_peer_cert_der())
+        finally:
+            ws.socket.close()
+
+    def test_tls_socket_returns_der(self):
+        ws = self._ws()
+        ws.socket = mock.Mock(spec=ssl.SSLSocket)
+        ws.socket.getpeercert.return_value = b"DER-CERT-BYTES"
+        self.assertEqual(ws.get_peer_cert_der(), b"DER-CERT-BYTES")
+        ws.socket.getpeercert.assert_called_once_with(binary_form=True)
+
+
+class _StubWS:
+    """Minimal WSClient stand-in for channel-binding policy tests."""
+
+    def __init__(self, *, cert_der=None, url=''):
+        self._cert_der = cert_der
+        self.url = url
+
+    def get_peer_cert_der(self):
+        return self._cert_der
+
+
+class _StubClient:
+    def __init__(self, ws):
+        self._ws = ws
+
+
+class TestResolveChannelBinding(unittest.TestCase):
+    """Test the SCRAM channel-binding policy (_resolve_channel_binding).
+
+    Policy: channel_binding=True requires a binding (TLS binds; the local UNIX socket is
+    exempt; any other non-TLS transport or a backend without support raises).
+    channel_binding=False is always unbound.
+    """
+
+    def test_disabled_is_unbound_over_tls(self):
+        c = _StubClient(_StubWS(cert_der=b'DER', url='wss://nas/api/current'))
+        self.assertIsNone(_resolve_channel_binding(c, False))
+
+    def test_disabled_is_unbound_over_non_tls(self):
+        c = _StubClient(_StubWS(url='ws://nas/api/current'))
+        self.assertIsNone(_resolve_channel_binding(c, False))
+
+    def test_tls_returns_binding(self):
+        c = _StubClient(_StubWS(cert_der=b'DER', url='wss://nas/api/current'))
+        with mock.patch.object(auth_api_key, 'compute_tls_server_end_point',
+                               return_value='BINDING') as m:
+            self.assertEqual(_resolve_channel_binding(c, True), 'BINDING')
+        m.assert_called_once_with(b'DER')
+
+    def test_tls_but_backend_without_support_raises(self):
+        c = _StubClient(_StubWS(cert_der=b'DER', url='wss://nas/api/current'))
+        with mock.patch.object(auth_api_key, 'compute_tls_server_end_point', None):
+            with self.assertRaises(ValueError) as ctx:
+                _resolve_channel_binding(c, True)
+        self.assertIn('channel_binding=False', str(ctx.exception))
+
+    def test_unix_socket_is_exempt(self):
+        # Local IPC: a required binding resolves to unbound rather than failing.
+        c = _StubClient(_StubWS(url='ws+unix:///run/middleware.sock'))
+        self.assertIsNone(_resolve_channel_binding(c, True))
+
+    def test_non_tls_network_raises(self):
+        c = _StubClient(_StubWS(url='ws://nas/api/current'))
+        with self.assertRaises(ValueError) as ctx:
+            _resolve_channel_binding(c, True)
+        self.assertIn('TLS', str(ctx.exception))
+        self.assertIn('channel_binding=False', str(ctx.exception))
+
+    def test_missing_transport_raises_when_required(self):
+        with self.assertRaises(ValueError):
+            _resolve_channel_binding(_StubClient(None), True)
+
+    def test_missing_transport_disabled_is_unbound(self):
+        self.assertIsNone(_resolve_channel_binding(_StubClient(None), False))
+
+
+class TestMidcltChannelBindingFlag(unittest.TestCase):
+    """Test the midclt --no-channel-binding CLI flag."""
+
+    def test_default_keeps_channel_binding_enabled(self):
+        args = get_parser().parse_args(['call', 'system.info'])
+        self.assertFalse(args.no_channel_binding)
+
+    def test_flag_disables_channel_binding(self):
+        args = get_parser().parse_args(['--no-channel-binding', 'call', 'system.info'])
+        self.assertTrue(args.no_channel_binding)
 
 
 if __name__ == '__main__':

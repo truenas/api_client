@@ -115,8 +115,10 @@ class ClientFinalMessage:
 
             # Prepare channel binding for message
             if channel_binding:
-                # Encode GS2 header + channel binding data
-                gs2_header_str = client_first.gs2_header or 'n,,'
+                # cbind-input = gs2-header + cbind-data (RFC 5802 6). The gs2-header is the
+                # cbind flag plus the empty-authzid separator exactly as it appears in
+                # client-first, e.g. "p=tls-server-end-point,,".
+                gs2_header_str = (client_first.gs2_header or 'n') + GS2_SEPARATOR
                 cb_data = gs2_header_str.encode() + bytes(channel_binding)
                 channel_binding_b64 = b64encode(cb_data).decode()
             else:

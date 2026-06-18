@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 from .ejson import loads
 from .exc import ClientException
-from .scram_impl import CryptoDatum, TNScramClient
+from .scram_impl import CB_TLS_SERVER_END_POINT, CryptoDatum, TNScramClient, compute_tls_server_end_point
 
 if TYPE_CHECKING:
     from . import Client
@@ -24,6 +24,11 @@ MECHANISM_SCRAM = 'SCRAM'
 MECHANISM_API_KEY_PLAIN = 'API_KEY_PLAIN'
 RESPONSE_TYPE_SCRAM = 'SCRAM_RESPONSE'
 RESPONSE_TYPE_AUTH_ERR = 'AUTH_ERR'
+
+# Websocket URI prefix for the local middleware UNIX domain socket. Channel binding is
+# meaningless for local IPC (no TLS, no MITM surface), so this transport is exempt from
+# the channel_binding=True requirement.
+UNIX_SOCKET_PREFIX = 'ws+unix://'
 
 
 class APIKeyAuthMech(StrEnum):
@@ -200,6 +205,51 @@ def _raise_for_api_key_response(resp: dict) -> None:
             raise ValueError(f'{other}: unexpected server response')
 
 
+def _resolve_channel_binding(c: 'Client', channel_binding: bool) -> CryptoDatum | None:
+    """Resolve the SCRAM channel binding to use for the current connection.
+
+    Returns the RFC 5929 ``tls-server-end-point`` binding for a TLS (``wss://``)
+    connection, or ``None`` for an unbound exchange.
+
+    When ``channel_binding`` is ``True`` (the default), the API-key SCRAM exchange must
+    be channel-bound: the server certificate is read from the live TLS socket (which
+    works even with ``verify_ssl=False``) and folded into the SCRAM proof. The local
+    UNIX socket is exempt, since channel binding is meaningless for local IPC. Any other
+    non-TLS transport, or a ``truenas_pyscram`` backend too old to compute the binding,
+    cannot satisfy the requirement and raises.
+
+    When ``channel_binding`` is ``False`` the exchange is always unbound (``n,,``), which
+    stays compatible with negotiate-mode servers and servers that predate channel binding.
+
+    Raises:
+        ValueError: channel binding was required but could not be established because the
+            connection is not TLS, or the active ``truenas_pyscram`` backend cannot
+            compute the binding.
+    """
+    if not channel_binding:
+        return None
+
+    ws = getattr(c, '_ws', None)
+    cert_der = ws.get_peer_cert_der() if ws is not None else None
+    if cert_der:
+        if compute_tls_server_end_point is None:
+            raise ValueError(
+                'channel binding is required but the installed truenas_pyscram does not '
+                'support it; upgrade truenas_pyscram or pass channel_binding=False'
+            )
+        return compute_tls_server_end_point(cert_der)
+
+    # No TLS certificate is available on this transport. The local UNIX socket is exempt;
+    # any other non-TLS transport cannot carry channel binding.
+    if (getattr(ws, 'url', '') or '').startswith(UNIX_SOCKET_PREFIX):
+        return None
+
+    raise ValueError(
+        'channel binding is required but the connection is not TLS (wss://); '
+        'pass channel_binding=False to authenticate without it'
+    )
+
+
 def api_key_authenticate(
     c: 'Client',
     auth_mechanism: APIKeyAuthMech,
@@ -207,6 +257,7 @@ def api_key_authenticate(
     key_in: str | None,
     *,
     use_legacy_endpoint: bool = False,
+    channel_binding: bool = True,
 ) -> None:
     """
     Perform API key authentication on an already-existing middleware
@@ -223,13 +274,21 @@ def api_key_authenticate(
             uses `auth.login_ex` with `API_KEY_PLAIN`. When True (for LegacyClient talking
             to old TrueNAS over `/websocket`) the PLAIN flow uses `auth.login_with_api_key`
             because the server predates `auth.login_ex`.
+        channel_binding: governs SCRAM-PLUS channel binding (RFC 5929 tls-server-end-point)
+            for the SCRAM mechanism. When True (default) the exchange is bound to the
+            server's TLS certificate and authentication fails if binding cannot be
+            negotiated (a non-TLS network transport, or a SCRAM backend that cannot
+            compute the binding). The local UNIX socket is exempt. When False the exchange
+            is unbound, which is required to reach servers without channel-binding support.
+            Has no effect on the PLAIN flow, which never uses SCRAM.
 
     Returns:
         None
 
     Raises:
         ValueError:
-            API key is not valid for server / user
+            API key is not valid for server / user, or channel binding was required but
+            could not be established (see `channel_binding`).
     """
     if key_in is None:
         raise ValueError('API key is required')
@@ -309,7 +368,15 @@ def api_key_authenticate(
             api_key_id=precomputed_data['api_key_id']
         )
 
-    client_first_message = sc.get_client_first_message(username)
+    # SCRAM-PLUS channel binding (RFC 5929 tls-server-end-point): by default the exchange
+    # is bound to the server's TLS certificate and authentication fails if a binding
+    # cannot be negotiated. _resolve_channel_binding implements the policy (TLS binds,
+    # local UNIX socket is exempt, other non-TLS transports raise) and the
+    # channel_binding=False escape hatch for servers without channel-binding support.
+    binding = _resolve_channel_binding(c, channel_binding)
+    first_kwargs = {'channel_binding_type': CB_TLS_SERVER_END_POINT} if binding else {}
+
+    client_first_message = sc.get_client_first_message(username, **first_kwargs)
 
     # Send our first client SCRAM message that provides client nonce to server and provides what key identifier
     # is being used server-side.
@@ -322,7 +389,9 @@ def api_key_authenticate(
     elif resp_type != RESPONSE_TYPE_SCRAM:
         raise ValueError(f'{resp_type}: unexpected server response')
 
-    client_final_message = sc.get_client_final_message(server_resp_dict=resp)
+    client_final_message = sc.get_client_final_message(
+        server_resp_dict=resp, channel_binding=binding
+    )
 
     # Send our client SCRAM final message that provides client proof to server
     resp = c.call('auth.login_ex', {'mechanism': MECHANISM_SCRAM} | client_final_message)
