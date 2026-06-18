@@ -31,6 +31,7 @@ class ClientFirstMessage:
         username: str,
         api_key_id: int = 0,
         gs2_header: str | None = None,
+        channel_binding_type: str | None = None,
     ):
         if not username:
             raise ValueError('Must specify username')
@@ -43,6 +44,14 @@ class ClientFirstMessage:
 
         if gs2_header and not isinstance(gs2_header, str):
             raise TypeError('GS2 header must be string if provided')
+
+        if channel_binding_type is not None:
+            if not isinstance(channel_binding_type, str):
+                raise TypeError('channel_binding_type must be string if provided')
+            if gs2_header is not None:
+                raise ValueError('Cannot specify both gs2_header and channel_binding_type')
+            # Client requires channel binding: the gs2 cbind flag becomes "p=<cb-name>".
+            gs2_header = f'p={channel_binding_type}'
 
         self.__nonce = generate_nonce()
         # RFC 5802, Section 5.1: "Before sending the username to the server, the client SHOULD

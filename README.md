@@ -156,6 +156,27 @@ with Client(uri="ws://some.other.truenas/api/current") as c:
       c.login_with_api_key(username, "/path/to/keyfile.json")
 ```
 
+#### Channel binding (SCRAM-PLUS)
+
+When SCRAM API-key authentication runs over a TLS (`wss://`) connection, `login_with_api_key`
+binds the exchange to the server's certificate (SCRAM-PLUS, RFC 5929 `tls-server-end-point`),
+which lets the server detect a TLS-terminating man-in-the-middle. This is the **default**, and
+authentication fails if the binding cannot be negotiated — for example over a non-TLS network
+connection (`ws://`), or against a server that does not support channel binding. The local
+middleware UNIX socket is exempt. SCRAM API-key authentication and channel binding are both
+supported on TrueNAS 26 and later. Binding works even with `verify_ssl=False`, since the
+certificate is still read from the TLS handshake.
+
+Pass `channel_binding=False` to authenticate without it:
+
+```python
+# Reach a server without channel-binding support, or a plain ws:// endpoint
+with Client(uri="wss://some.other.truenas/api/current") as c:
+      c.login_with_api_key(username, key, channel_binding=False)
+```
+
+The `midclt` CLI exposes the same override as `--no-channel-binding`.
+
 ### API Key Storage Formats
 
 TrueNAS API keys can be stored in multiple formats. The key material is provided by TrueNAS when generating an

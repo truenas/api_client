@@ -181,6 +181,19 @@ class WSClient:
         )
         Thread(daemon=True, target=self.app.run_forever).start()
 
+    def get_peer_cert_der(self) -> bytes | None:
+        """Return the server's TLS certificate in DER form, or `None` for a non-TLS
+        transport (unix socket, plain `ws://`, or reserved-port connection).
+
+        Used to compute the RFC 5929 tls-server-end-point SCRAM channel binding. The
+        certificate is retrievable even when `verify_ssl` is `False`.
+        """
+        sock = getattr(self, 'socket', None)
+        if isinstance(sock, ssl.SSLSocket):
+            return sock.getpeercert(binary_form=True)
+
+        return None
+
     def send(self, data: bytes | str):
         """Send data to the server by calling `WebSocketApp.send()`.
 
@@ -976,7 +989,9 @@ class JSONRPCClient:
         self,
         username: str,
         api_key: str,
-        auth_mechanism: APIKeyAuthMech = APIKeyAuthMech.AUTO
+        auth_mechanism: APIKeyAuthMech = APIKeyAuthMech.AUTO,
+        *,
+        channel_binding: bool = True,
     ) -> None:
         """
         Helper function to authenticate via API key to the truenas server.
@@ -987,14 +1002,22 @@ class JSONRPCClient:
             api_key: either the key material or an absolute path to the file where it is stored
             auth_mechanism: one of "AUTO", "SCRAM", "PLAIN" specifying the type of authentication
                 to perform. AUTO will use SCRAM if support for it is detected.
+            channel_binding: when True (default), SCRAM authentication binds the exchange to
+                the server's TLS certificate (SCRAM-PLUS, RFC 5929 tls-server-end-point) and
+                fails if binding cannot be negotiated -- i.e. on a non-TLS network transport,
+                or against a SCRAM backend too old to compute the binding. The local UNIX
+                socket is exempt. Pass False to authenticate without channel binding, which is
+                required over a plain ``ws://`` connection or against a server that does not
+                support it. Has no effect on PLAIN authentication.
 
         Returns:
             None
 
         Raises:
-            ValueError: an error occurred during authentication.
+            ValueError: an error occurred during authentication, or channel binding was
+                required but could not be established.
         """
-        api_key_authenticate(self, auth_mechanism, username, api_key)
+        api_key_authenticate(self, auth_mechanism, username, api_key, channel_binding=channel_binding)
 
     def login_with_password(self, username: str, password: str, *, otp_token: str | None = None) -> None:
         """
@@ -1115,6 +1138,15 @@ def get_parser():
     parser.add_argument(
         '--insecure', action='store_true',
         help='Disable SSL certificate verification (WARNING: not for production).',
+    )
+    parser.add_argument(
+        '--no-channel-binding', action='store_true',
+        help=(
+            'Disable SCRAM-PLUS channel binding for API-key login. By default, API-key '
+            'authentication over TLS (wss://) binds to the server certificate and fails '
+            'if binding cannot be negotiated. Use this over a plain ws:// connection or '
+            'against a server that does not support channel binding.'
+        ),
     )
 
     subparsers = parser.add_subparsers(
@@ -1243,7 +1275,10 @@ def main():
                     if args.username and args.password:
                         c.login_with_password(args.username, args.password)
                     elif args.api_key:
-                        c.login_with_api_key(args.username, args.api_key)
+                        c.login_with_api_key(
+                            args.username, args.api_key,
+                            channel_binding=not args.no_channel_binding,
+                        )
                 except Exception as e:
                     print("Failed to login: ", e)
                     sys.exit(0)
