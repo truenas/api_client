@@ -12,6 +12,19 @@ from base64 import b64decode, b64encode
 
 import truenas_api_client.py_scram as py_scram
 
+try:
+    from ._cb_test_vectors import CB_VECTORS, REJECTED_VECTORS
+except ImportError:  # direct execution: python3 tests/scram/test_py_scram.py
+    from _cb_test_vectors import CB_VECTORS, REJECTED_VECTORS
+
+try:
+    # Test-only oracle (not a runtime dependency of the client).
+    from cryptography import x509 as _x509
+    from cryptography.exceptions import UnsupportedAlgorithm as _CryptoUnsupported
+    _HAVE_CRYPTOGRAPHY = True
+except ImportError:
+    _HAVE_CRYPTOGRAPHY = False
+
 # Self-signed RSA-2048 / sha256WithRSAEncryption certificate (DER). Its RFC 5929
 # tls-server-end-point value equals SHA-256(DER) because the cert is SHA-256 signed.
 _CB_TEST_CERT_DER = b64decode(
@@ -83,6 +96,20 @@ class TestClientFirstMessage(unittest.TestCase):
         msg = py_scram.ClientFirstMessage(username="testuser", gs2_header="n")
 
         self.assertEqual(msg.gs2_header, "n")
+
+    def test_channel_binding_type_builds_p_flag(self):
+        """A channel_binding_type produces a 'p=<cb-name>,,' gs2 cbind flag."""
+        msg = py_scram.ClientFirstMessage(
+            username="testuser", channel_binding_type="tls-server-end-point")
+
+        self.assertEqual(msg.gs2_header, "p=tls-server-end-point")
+        self.assertTrue(str(msg).startswith("p=tls-server-end-point,,"))
+
+    def test_empty_channel_binding_type_rejected(self):
+        """An empty channel_binding_type would emit a malformed 'p=' header; it is
+        rejected, matching the C library's scram_build_gs2_header()."""
+        with self.assertRaises(ValueError):
+            py_scram.ClientFirstMessage(username="testuser", channel_binding_type="")
 
     def test_serialization(self):
         """Test ClientFirstMessage serialization."""
@@ -535,6 +562,29 @@ class TestChannelBinding(unittest.TestCase):
         with self.assertRaises(ValueError):
             py_scram.compute_tls_server_end_point(b"not a certificate")
 
+    def test_rejects_undefined_signature_algorithm(self):
+        """Signature algorithms with no single well-defined hash (e.g. EdDSA) are
+        rejected, matching the C library."""
+        for name, cert_der in REJECTED_VECTORS:
+            with self.subTest(cert=name):
+                with self.assertRaises(ValueError):
+                    py_scram.compute_tls_server_end_point(cert_der)
+
+    def test_signature_algorithm_hashes(self):
+        """Lock the OID->hash selection without the C ext: RSA-PSS (digest read from
+        the signature parameters), DSA, ECDSA-SHA384, and the SHA-1 -> SHA-256
+        promotion each yield the expected digest."""
+        expected_len = {
+            'rsa_pss_sha256': 32, 'rsa_pss_sha512': 64, 'ecdsa_sha384': 48,
+            'rsa_sha1': 32,  # SHA-1 promoted to SHA-256
+            'dsa_sha256': 32,
+        }
+        for name, cert_der, expected in CB_VECTORS:
+            with self.subTest(cert=name):
+                binding = py_scram.compute_tls_server_end_point(cert_der)
+                self.assertEqual(bytes(binding), expected)
+                self.assertEqual(len(bytes(binding)), expected_len[name])
+
 
 class TestChannelBindingServerSignatureRoundTrip(unittest.TestCase):
     """Regression test for the cbind-input reconstruction in verify_server_signature.
@@ -600,6 +650,51 @@ class TestChannelBindingServerSignatureRoundTrip(unittest.TestCase):
             client_first=cf, server_first=sf, client_final=fin,
             server_final=server_final, server_key=auth.server_key,
         )
+
+
+def _cryptography_tls_server_end_point(cert_der):
+    """Independent reference using python-cryptography: hash the certificate with the
+    digest from its own signature algorithm (MD5/SHA-1 promoted to SHA-256, RFC 5929
+    4.1), or raise ValueError when the algorithm defines no single hash (e.g. EdDSA)."""
+    cert = _x509.load_der_x509_certificate(bytes(cert_der))
+    try:
+        sig_hash = cert.signature_hash_algorithm
+    except _CryptoUnsupported:
+        sig_hash = None
+    if sig_hash is None:
+        raise ValueError('tls-server-end-point is undefined for this certificate')
+    name = sig_hash.name
+    if name in ('md5', 'sha1'):
+        name = 'sha256'
+    return hashlib.new(name, bytes(cert_der)).digest()
+
+
+@unittest.skipUnless(_HAVE_CRYPTOGRAPHY, 'python-cryptography not installed')
+class TestChannelBindingCryptographyConformance(unittest.TestCase):
+    """Cross-check the pure-python (fallback) channel-binding parser against an
+    independent python-cryptography reference -- a third oracle alongside the
+    truenas_pyscram C extension (test_compatibility.py) and the frozen vectors.
+
+    py_scram.compute_tls_server_end_point only runs when the C extension is absent,
+    so this guards a rarely-exercised path: it confirms the hand-rolled DER walk
+    selects the same signature digest cryptography's ASN.1 parser does.
+    """
+
+    def test_matches_cryptography(self):
+        for name, cert_der, _expected in CB_VECTORS:
+            with self.subTest(cert=name):
+                self.assertEqual(
+                    bytes(py_scram.compute_tls_server_end_point(cert_der)),
+                    _cryptography_tls_server_end_point(cert_der),
+                )
+
+    def test_rejection_agrees_with_cryptography(self):
+        for name, cert_der in REJECTED_VECTORS:
+            with self.subTest(cert=name):
+                with self.assertRaises(ValueError):
+                    py_scram.compute_tls_server_end_point(cert_der)
+                with self.assertRaises(ValueError):
+                    _cryptography_tls_server_end_point(cert_der)
 
 
 if __name__ == '__main__':

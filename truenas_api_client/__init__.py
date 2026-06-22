@@ -187,6 +187,10 @@ class WSClient:
 
         Used to compute the RFC 5929 tls-server-end-point SCRAM channel binding. The
         certificate is retrievable even when `verify_ssl` is `False`.
+
+        Precondition: the TLS handshake must be complete -- true for the SCRAM login
+        flow, which runs after `connect()`. Before the handshake `getpeercert()` returns
+        an empty value, which callers treat as "no certificate" (a falsy result).
         """
         sock = getattr(self, 'socket', None)
         if isinstance(sock, ssl.SSLSocket):
@@ -1006,9 +1010,12 @@ class JSONRPCClient:
                 the server's TLS certificate (SCRAM-PLUS, RFC 5929 tls-server-end-point) and
                 fails if binding cannot be negotiated -- i.e. on a non-TLS network transport,
                 or against a SCRAM backend too old to compute the binding. The local UNIX
-                socket is exempt. Pass False to authenticate without channel binding, which is
-                required over a plain ``ws://`` connection or against a server that does not
-                support it. Has no effect on PLAIN authentication.
+                socket is exempt. With auth_mechanism=AUTO it also fails closed when the server
+                does not support SCRAM, instead of silently downgrading to a plaintext (unbound)
+                API-key exchange that a TLS-terminating man-in-the-middle could harvest. Pass
+                False to authenticate without channel binding -- required over a plain ``ws://``
+                connection, or against a server that does not support SCRAM / channel binding.
+                Ignored for explicit PLAIN authentication.
 
         Returns:
             None

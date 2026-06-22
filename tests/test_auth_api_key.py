@@ -477,5 +477,61 @@ class TestMidcltChannelBindingFlag(unittest.TestCase):
         self.assertTrue(args.no_channel_binding)
 
 
+class _CallStubClient:
+    """Minimal Client stand-in: canned auth.mechanism_choices, records every call."""
+
+    def __init__(self, mechanisms, *, responses=None):
+        self._mechanisms = mechanisms
+        self._responses = responses or {}
+        self.calls = []
+
+    def call(self, method, *args):
+        self.calls.append(method)
+        if method == 'auth.mechanism_choices':
+            return self._mechanisms
+        # Default to a generic SUCCESS so the PLAIN/legacy paths complete.
+        return self._responses.get(method, {'response_type': 'SUCCESS'})
+
+
+# A syntactically valid raw API key (<id>-<key>). The SCRAM path (which would run
+# PBKDF2 on this) is never reached by these AUTO-policy tests.
+_RAW_KEY = '7-' + 'a' * 64
+
+
+class TestApiKeyAutoChannelBindingPolicy(unittest.TestCase):
+    """AUTO must fail closed instead of silently downgrading to plaintext API-key auth
+    when channel binding was requested but the server does not advertise SCRAM."""
+
+    def test_auto_cb_required_no_scram_raises(self):
+        c = _CallStubClient(['API_KEY_PLAIN'])
+        with self.assertRaises(ValueError) as ctx:
+            auth_api_key.api_key_authenticate(
+                c, auth_api_key.APIKeyAuthMech.AUTO, 'user', _RAW_KEY,
+                channel_binding=True,
+            )
+        self.assertIn('channel_binding=False', str(ctx.exception))
+        # Critically, the key must NOT have been transmitted before the refusal.
+        self.assertNotIn('auth.login_ex', c.calls)
+
+    def test_auto_cb_disabled_no_scram_falls_back_to_plain(self):
+        c = _CallStubClient(['API_KEY_PLAIN'])
+        auth_api_key.api_key_authenticate(
+            c, auth_api_key.APIKeyAuthMech.AUTO, 'user', _RAW_KEY,
+            channel_binding=False,
+        )
+        # The opt-out lets AUTO complete the unbound PLAIN exchange.
+        self.assertIn('auth.login_ex', c.calls)
+
+    def test_legacy_endpoint_not_blocked_by_default_channel_binding(self):
+        # LegacyClient leaves channel_binding at its default True but talks to servers
+        # that never had SCRAM; the fail-closed guard must not make it unusable.
+        c = _CallStubClient(['API_KEY_PLAIN'])
+        auth_api_key.api_key_authenticate(
+            c, auth_api_key.APIKeyAuthMech.AUTO, 'user', _RAW_KEY,
+            use_legacy_endpoint=True, channel_binding=True,
+        )
+        self.assertIn('auth.login_with_api_key', c.calls)
+
+
 if __name__ == '__main__':
     unittest.main()

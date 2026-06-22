@@ -117,6 +117,10 @@ class WSClient:
         """Return the server's TLS certificate in DER form, or `None` for a non-TLS
         transport. Used to compute the RFC 5929 tls-server-end-point SCRAM channel
         binding (retrievable even when `verify_ssl` is `False`).
+
+        Precondition: the TLS handshake must be complete (true once `connect()` has run,
+        before any login); before that `getpeercert()` yields an empty value that callers
+        treat as "no certificate".
         """
         if isinstance(self.socket, ssl.SSLSocket):
             return self.socket.getpeercert(binary_form=True)
