@@ -10,6 +10,12 @@ license = {text = "LGPLv3"}
 dynamic = ["version"]
 dependencies = ["websocket-client"]
 
+[project.optional-dependencies]
+# Test-only: python-cryptography is used purely as an independent oracle in the
+# channel-binding conformance tests (tests/scram/). It is NOT a runtime dependency
+# -- the py_scram fallback parser is pure-stdlib.
+test = ["cryptography"]
+
 [project.scripts]
 midclt = "truenas_api_client:main"
 

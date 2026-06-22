@@ -48,6 +48,11 @@ class ClientFirstMessage:
         if channel_binding_type is not None:
             if not isinstance(channel_binding_type, str):
                 raise TypeError('channel_binding_type must be string if provided')
+            if not channel_binding_type:
+                # A "p=" gs2 cbind flag requires a non-empty cb-name; an empty string
+                # would emit a malformed "p=,," header. Reject it, matching the C
+                # library's scram_build_gs2_header() (rejects empty cb_name).
+                raise ValueError('channel_binding_type must not be empty if provided')
             if gs2_header is not None:
                 raise ValueError('Cannot specify both gs2_header and channel_binding_type')
             # Client requires channel binding: the gs2 cbind flag becomes "p=<cb-name>".

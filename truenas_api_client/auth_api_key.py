@@ -230,7 +230,8 @@ def _resolve_channel_binding(c: 'Client', channel_binding: bool) -> CryptoDatum 
         return None
 
     ws = getattr(c, '_ws', None)
-    cert_der = ws.get_peer_cert_der() if ws is not None else None
+    get_cert = getattr(ws, 'get_peer_cert_der', None)
+    cert_der = get_cert() if get_cert is not None else None
     if cert_der:
         if compute_tls_server_end_point is None:
             raise ValueError(
@@ -278,9 +279,13 @@ def api_key_authenticate(
             for the SCRAM mechanism. When True (default) the exchange is bound to the
             server's TLS certificate and authentication fails if binding cannot be
             negotiated (a non-TLS network transport, or a SCRAM backend that cannot
-            compute the binding). The local UNIX socket is exempt. When False the exchange
-            is unbound, which is required to reach servers without channel-binding support.
-            Has no effect on the PLAIN flow, which never uses SCRAM.
+            compute the binding). The local UNIX socket is exempt. With auth_mechanism=AUTO
+            it additionally fails closed if the server does not offer SCRAM at all, rather
+            than silently downgrading to a plaintext (unbound) API-key exchange -- the server
+            enforces no downgrade protection, so the client must. When False the exchange is
+            unbound, which is required to reach servers without SCRAM / channel-binding
+            support. Ignored for an explicit PLAIN mechanism and for the legacy endpoint,
+            neither of which uses SCRAM.
 
     Returns:
         None
@@ -314,7 +319,22 @@ def api_key_authenticate(
         case APIKeyAuthMech.PLAIN:
             do_legacy_auth = True
         case APIKeyAuthMech.AUTO:
-            if MECHANISM_SCRAM not in available_mechanisms or not username:
+            scram_available = MECHANISM_SCRAM in available_mechanisms
+            # Fail closed on a silent channel-binding downgrade: if channel binding was
+            # requested but the server does not offer SCRAM, AUTO would otherwise fall back
+            # to plaintext API-key auth, which cannot be channel-bound. The server enforces
+            # no SCRAM downgrade protection (a MITM that strips SCRAM from
+            # auth.mechanism_choices forces exactly this path), so the client is the only
+            # enforcer -- refuse rather than transmit the key unbound. The legacy endpoint is
+            # exempt: those servers never had SCRAM, so there is no binding to negotiate.
+            if not scram_available and channel_binding and not use_legacy_endpoint:
+                raise ValueError(
+                    'channel binding was requested (channel_binding=True) but the server '
+                    'does not support SCRAM, so the API key would be sent using plaintext '
+                    'authentication, which cannot be channel-bound. Pass channel_binding=False '
+                    'to allow the unbound plaintext flow (the key is still protected by TLS).'
+                )
+            if not scram_available or not username:
                 do_legacy_auth = True
         case APIKeyAuthMech.SCRAM:
             if MECHANISM_SCRAM not in available_mechanisms:

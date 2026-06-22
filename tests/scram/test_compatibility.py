@@ -12,6 +12,11 @@ from ssl import RAND_bytes
 import truenas_pyscram  # type: ignore
 import truenas_api_client.py_scram as py_scram
 
+try:
+    from ._cb_test_vectors import CB_VECTORS, REJECTED_VECTORS
+except ImportError:  # direct execution: python3 tests/scram/test_compatibility.py
+    from _cb_test_vectors import CB_VECTORS, REJECTED_VECTORS
+
 # Self-signed RSA-2048 / sha256WithRSAEncryption certificate (DER) for channel-binding
 # parity checks (tls-server-end-point == SHA-256(DER) for a SHA-256-signed cert).
 _CB_TEST_CERT_DER = b64decode(
@@ -377,6 +382,25 @@ class TestChannelBindingCompatibility(unittest.TestCase):
         c = bytes(truenas_pyscram.compute_tls_server_end_point(_CB_TEST_CERT_DER))
         p = bytes(py_scram.compute_tls_server_end_point(_CB_TEST_CERT_DER))
         self.assertEqual(c, p)
+
+    def test_signature_algorithm_parity(self):
+        """py_scram mirrors the C extension across RSA-PSS / DSA / ECDSA / SHA-1 promotion."""
+        for name, cert_der, expected in CB_VECTORS:
+            with self.subTest(cert=name):
+                p = bytes(py_scram.compute_tls_server_end_point(cert_der))
+                c = bytes(truenas_pyscram.compute_tls_server_end_point(cert_der))
+                self.assertEqual(p, expected, f'{name}: py_scram diverged')
+                self.assertEqual(c, expected, f'{name}: C extension diverged')
+
+    def test_undefined_signature_algorithm_rejected_by_both(self):
+        """EdDSA (no single signature hash) is rejected by py_scram and the C
+        extension alike -- the divergence-free boundary of the OID table."""
+        for name, cert_der in REJECTED_VECTORS:
+            with self.subTest(cert=name):
+                with self.assertRaises(ValueError):
+                    py_scram.compute_tls_server_end_point(cert_der)
+                with self.assertRaises(Exception):
+                    truenas_pyscram.compute_tls_server_end_point(cert_der)
 
     def test_cb_name_constant_parity(self):
         self.assertEqual(py_scram.CB_TLS_SERVER_END_POINT, truenas_pyscram.CB_TLS_SERVER_END_POINT)
