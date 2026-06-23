@@ -15,7 +15,7 @@ import truenas_api_client.py_scram as py_scram
 try:
     from ._cb_test_vectors import CB_VECTORS, REJECTED_VECTORS
 except ImportError:  # direct execution: python3 tests/scram/test_compatibility.py
-    from _cb_test_vectors import CB_VECTORS, REJECTED_VECTORS
+    from _cb_test_vectors import CB_VECTORS, REJECTED_VECTORS  # type: ignore
 
 # Self-signed RSA-2048 / sha256WithRSAEncryption certificate (DER) for channel-binding
 # parity checks (tls-server-end-point == SHA-256(DER) for a SHA-256-signed cert).

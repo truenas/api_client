@@ -15,12 +15,12 @@ import truenas_api_client.py_scram as py_scram
 try:
     from ._cb_test_vectors import CB_VECTORS, REJECTED_VECTORS
 except ImportError:  # direct execution: python3 tests/scram/test_py_scram.py
-    from _cb_test_vectors import CB_VECTORS, REJECTED_VECTORS
+    from _cb_test_vectors import CB_VECTORS, REJECTED_VECTORS  # type: ignore
 
 try:
     # Test-only oracle (not a runtime dependency of the client).
-    from cryptography import x509 as _x509
-    from cryptography.exceptions import UnsupportedAlgorithm as _CryptoUnsupported
+    from cryptography import x509 as _x509  # type: ignore
+    from cryptography.exceptions import UnsupportedAlgorithm as _CryptoUnsupported  # type: ignore
     _HAVE_CRYPTOGRAPHY = True
 except ImportError:
     _HAVE_CRYPTOGRAPHY = False
