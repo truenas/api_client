@@ -157,6 +157,22 @@ with Client(uri="ws://some.other.truenas/api/current") as c:
       c.login_with_api_key(username, "/path/to/keyfile.json")
 ```
 
+API-key login uses **SCRAM-SHA-512** by default (TrueNAS 26 and later), which never transmits
+the key over the wire. To reach a server that does not support SCRAM (TrueNAS before 26) you
+must opt in to plaintext authentication explicitly — the client never auto-downgrades, because
+the server's advertised mechanism list is unauthenticated and a man-in-the-middle could
+otherwise strip SCRAM to force the client to divulge the cleartext key:
+
+```python
+from truenas_api_client import APIKeyAuthMech
+
+with Client(uri="ws://old.truenas/api/current") as c:
+      c.login_with_api_key(username, key, auth_mechanism=APIKeyAuthMech.PLAIN)
+```
+
+The `midclt` CLI exposes this as `--plain`. **Warning:** PLAIN transmits the raw API key; only
+the TLS layer (if any) protects it.
+
 #### Channel binding (SCRAM-PLUS)
 
 When SCRAM API-key authentication runs over a TLS (`wss://`) connection, `login_with_api_key`
@@ -181,8 +197,8 @@ The `midclt` CLI exposes the same override as `--no-channel-binding`.
 ### API Key Storage Formats
 
 TrueNAS API keys can be stored in multiple formats. The key material is provided by TrueNAS when generating an
-API key. SCRAM-SHA512 authentication is supported in TrueNAS version 26 and later. Earlier versions use plain API key
-authentication.
+API key. SCRAM-SHA512 authentication is supported in TrueNAS version 26 and later. Reaching earlier versions
+requires explicitly opting in to plain API key authentication (`auth_mechanism=APIKeyAuthMech.PLAIN` / `midclt --plain`).
 
 #### Raw API Key
 

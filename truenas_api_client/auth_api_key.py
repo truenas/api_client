@@ -32,9 +32,8 @@ UNIX_SOCKET_PREFIX = 'ws+unix://'
 
 
 class APIKeyAuthMech(StrEnum):
-    AUTO = 'AUTO'  # autodetect and try SCRAM if available
-    SCRAM = 'SCRAM'  # only attempt SCRAM auth
-    PLAIN = 'PLAIN'  # only attempt PLAIN auth
+    SCRAM = 'SCRAM'  # SCRAM-SHA-512 (default); never transmits the API key in plaintext
+    PLAIN = 'PLAIN'  # explicit opt-in; transmits the raw API key (only TLS protects it)
 
 
 class KeyDataType(StrEnum):
@@ -266,7 +265,8 @@ def api_key_authenticate(
 
     Arguments:
         c: truenas_api_client.Client() instance
-        auth_mechanism: one of 'AUTO', 'SCRAM', or 'PLAIN'
+        auth_mechanism: 'SCRAM' (default; never sends the key in plaintext) or 'PLAIN'
+            (explicit opt-in that transmits the raw API key)
         username: name of the user that the API key is associated with (required for SCRAM
             and for PLAIN when `use_legacy_endpoint` is False)
         key_in: either the actual key material or an absolute path to a file
@@ -279,13 +279,10 @@ def api_key_authenticate(
             for the SCRAM mechanism. When True (default) the exchange is bound to the
             server's TLS certificate and authentication fails if binding cannot be
             negotiated (a non-TLS network transport, or a SCRAM backend that cannot
-            compute the binding). The local UNIX socket is exempt. With auth_mechanism=AUTO
-            it additionally fails closed if the server does not offer SCRAM at all, rather
-            than silently downgrading to a plaintext (unbound) API-key exchange -- the server
-            enforces no downgrade protection, so the client must. When False the exchange is
-            unbound, which is required to reach servers without SCRAM / channel-binding
-            support. Ignored for an explicit PLAIN mechanism and for the legacy endpoint,
-            neither of which uses SCRAM.
+            compute the binding). The local UNIX socket is exempt. When False the exchange is
+            unbound (still SCRAM), which is required over a plain ``ws://`` connection or
+            against a server that supports SCRAM but not channel binding. Ignored for the
+            PLAIN mechanism and the legacy endpoint, neither of which uses SCRAM.
 
     Returns:
         None
@@ -318,27 +315,17 @@ def api_key_authenticate(
     match auth_mechanism:
         case APIKeyAuthMech.PLAIN:
             do_legacy_auth = True
-        case APIKeyAuthMech.AUTO:
-            scram_available = MECHANISM_SCRAM in available_mechanisms
-            # Fail closed on a silent channel-binding downgrade: if channel binding was
-            # requested but the server does not offer SCRAM, AUTO would otherwise fall back
-            # to plaintext API-key auth, which cannot be channel-bound. The server enforces
-            # no SCRAM downgrade protection (a MITM that strips SCRAM from
-            # auth.mechanism_choices forces exactly this path), so the client is the only
-            # enforcer -- refuse rather than transmit the key unbound. The legacy endpoint is
-            # exempt: those servers never had SCRAM, so there is no binding to negotiate.
-            if not scram_available and channel_binding and not use_legacy_endpoint:
-                raise ValueError(
-                    'channel binding was requested (channel_binding=True) but the server '
-                    'does not support SCRAM, so the API key would be sent using plaintext '
-                    'authentication, which cannot be channel-bound. Pass channel_binding=False '
-                    'to allow the unbound plaintext flow (the key is still protected by TLS).'
-                )
-            if not scram_available or not username:
-                do_legacy_auth = True
         case APIKeyAuthMech.SCRAM:
+            # SCRAM is the default and never transmits the key in plaintext. We deliberately
+            # do NOT auto-fall-back to PLAIN when the server omits SCRAM: auth.mechanism_choices
+            # is unauthenticated, so a MITM that strips SCRAM from it could otherwise force a
+            # silent downgrade and harvest the cleartext key. Reaching a server without SCRAM is
+            # therefore an explicit, informed choice (auth_mechanism=PLAIN).
             if MECHANISM_SCRAM not in available_mechanisms:
-                raise ValueError('SCRAM authentication is not supported on the remote server')
+                raise ValueError(
+                    'SCRAM authentication is not supported on the remote server; pass '
+                    'auth_mechanism="PLAIN" to authenticate with a plaintext API key'
+                )
 
             if not username:
                 raise ValueError('username is required for SCRAM authentication')

@@ -517,8 +517,9 @@ class LegacyClient:
             username: this parameter is ignored for legacy clients. It exists to ensure consistent
                function signatures for API consumers.
             api_key: either the key material or an absolute path to the file where it is stored
-            auth_mechanism: one of "AUTO", "PLAIN" specifying the type of authentication. A ValueError
-               will be raised if SCRAM is specified.
+            auth_mechanism: "PLAIN" is the only supported value -- legacy servers cannot do SCRAM,
+               so a ValueError is raised if SCRAM is specified. Kept for signature parity with the
+               non-legacy client.
             channel_binding: ignored for legacy clients. Legacy TrueNAS servers do not implement
                SCRAM, so there is no channel binding to negotiate. It exists to ensure consistent
                function signatures for API consumers.

@@ -466,7 +466,7 @@ class TestResolveChannelBinding(unittest.TestCase):
 
 
 class TestMidcltChannelBindingFlag(unittest.TestCase):
-    """Test the midclt --no-channel-binding CLI flag."""
+    """Test the midclt --no-channel-binding and --plain CLI flags."""
 
     def test_default_keeps_channel_binding_enabled(self):
         args = get_parser().parse_args(['call', 'system.info'])
@@ -475,6 +475,14 @@ class TestMidcltChannelBindingFlag(unittest.TestCase):
     def test_flag_disables_channel_binding(self):
         args = get_parser().parse_args(['--no-channel-binding', 'call', 'system.info'])
         self.assertTrue(args.no_channel_binding)
+
+    def test_default_uses_scram_not_plain(self):
+        args = get_parser().parse_args(['call', 'system.info'])
+        self.assertFalse(args.plain)
+
+    def test_plain_flag_selects_plain(self):
+        args = get_parser().parse_args(['--plain', 'call', 'system.info'])
+        self.assertTrue(args.plain)
 
 
 class _CallStubClient:
@@ -494,43 +502,53 @@ class _CallStubClient:
 
 
 # A syntactically valid raw API key (<id>-<key>). The SCRAM path (which would run
-# PBKDF2 on this) is never reached by these AUTO-policy tests.
+# PBKDF2 on this) is never reached by these mechanism-policy tests.
 _RAW_KEY = '7-' + 'a' * 64
 
 
-class TestApiKeyAutoChannelBindingPolicy(unittest.TestCase):
-    """AUTO must fail closed instead of silently downgrading to plaintext API-key auth
-    when channel binding was requested but the server does not advertise SCRAM."""
+class TestApiKeyMechanismPolicy(unittest.TestCase):
+    """The client must never auto-downgrade to plaintext. SCRAM (the default) refuses --
+    without transmitting the key -- when the server does not advertise SCRAM; PLAIN is an
+    explicit opt-in that sends the key."""
 
-    def test_auto_cb_required_no_scram_raises(self):
+    def test_scram_no_scram_server_raises_without_sending_key(self):
         c = _CallStubClient(['API_KEY_PLAIN'])
         with self.assertRaises(ValueError) as ctx:
             auth_api_key.api_key_authenticate(
-                c, auth_api_key.APIKeyAuthMech.AUTO, 'user', _RAW_KEY,
-                channel_binding=True,
+                c, auth_api_key.APIKeyAuthMech.SCRAM, 'user', _RAW_KEY,
             )
-        self.assertIn('channel_binding=False', str(ctx.exception))
-        # Critically, the key must NOT have been transmitted before the refusal.
+        # Points the caller at the explicit opt-in...
+        self.assertIn('PLAIN', str(ctx.exception))
+        # ...and, security-critical, the key was NOT transmitted before the refusal.
         self.assertNotIn('auth.login_ex', c.calls)
 
-    def test_auto_cb_disabled_no_scram_falls_back_to_plain(self):
+    def test_explicit_plain_sends_key(self):
         c = _CallStubClient(['API_KEY_PLAIN'])
         auth_api_key.api_key_authenticate(
-            c, auth_api_key.APIKeyAuthMech.AUTO, 'user', _RAW_KEY,
-            channel_binding=False,
+            c, auth_api_key.APIKeyAuthMech.PLAIN, 'user', _RAW_KEY,
         )
-        # The opt-out lets AUTO complete the unbound PLAIN exchange.
+        # The explicit opt-in completes the plaintext exchange.
         self.assertIn('auth.login_ex', c.calls)
 
-    def test_legacy_endpoint_not_blocked_by_default_channel_binding(self):
-        # LegacyClient leaves channel_binding at its default True but talks to servers
-        # that never had SCRAM; the fail-closed guard must not make it unusable.
+    def test_legacy_endpoint_uses_plain_path(self):
+        # LegacyClient authenticates via PLAIN over the legacy /websocket endpoint.
         c = _CallStubClient(['API_KEY_PLAIN'])
         auth_api_key.api_key_authenticate(
-            c, auth_api_key.APIKeyAuthMech.AUTO, 'user', _RAW_KEY,
-            use_legacy_endpoint=True, channel_binding=True,
+            c, auth_api_key.APIKeyAuthMech.PLAIN, 'user', _RAW_KEY,
+            use_legacy_endpoint=True,
         )
         self.assertIn('auth.login_with_api_key', c.calls)
+
+    def test_jsonrpc_login_defaults_to_scram(self):
+        # Lock the security-relevant default: API-key login must default to SCRAM, never a
+        # mechanism that could transmit the key in plaintext.
+        import inspect
+        from truenas_api_client import JSONRPCClient
+        sig = inspect.signature(JSONRPCClient.login_with_api_key)
+        self.assertEqual(
+            sig.parameters['auth_mechanism'].default,
+            auth_api_key.APIKeyAuthMech.SCRAM,
+        )
 
 
 if __name__ == '__main__':
