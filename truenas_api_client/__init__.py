@@ -993,7 +993,7 @@ class JSONRPCClient:
         self,
         username: str,
         api_key: str,
-        auth_mechanism: APIKeyAuthMech = APIKeyAuthMech.AUTO,
+        auth_mechanism: APIKeyAuthMech = APIKeyAuthMech.SCRAM,
         *,
         channel_binding: bool = True,
     ) -> None:
@@ -1004,18 +1004,19 @@ class JSONRPCClient:
             username: name of the user that the API key is associated with
                 NOTE: this is required for SCRAM authentication
             api_key: either the key material or an absolute path to the file where it is stored
-            auth_mechanism: one of "AUTO", "SCRAM", "PLAIN" specifying the type of authentication
-                to perform. AUTO will use SCRAM if support for it is detected.
+            auth_mechanism: "SCRAM" (default) or "PLAIN". SCRAM (TrueNAS 26+) never transmits
+                the key over the wire. PLAIN sends the raw API key (protected only by TLS) and
+                must be selected explicitly -- it is required to reach a server that does not
+                support SCRAM (before TrueNAS 26). The client never auto-downgrades to PLAIN:
+                choosing it from the server's unauthenticated advertised mechanisms would let a
+                man-in-the-middle strip SCRAM and harvest the cleartext key.
             channel_binding: when True (default), SCRAM authentication binds the exchange to
                 the server's TLS certificate (SCRAM-PLUS, RFC 5929 tls-server-end-point) and
                 fails if binding cannot be negotiated -- i.e. on a non-TLS network transport,
                 or against a SCRAM backend too old to compute the binding. The local UNIX
-                socket is exempt. With auth_mechanism=AUTO it also fails closed when the server
-                does not support SCRAM, instead of silently downgrading to a plaintext (unbound)
-                API-key exchange that a TLS-terminating man-in-the-middle could harvest. Pass
-                False to authenticate without channel binding -- required over a plain ``ws://``
-                connection, or against a server that does not support SCRAM / channel binding.
-                Ignored for explicit PLAIN authentication.
+                socket is exempt. Pass False to authenticate with SCRAM but without channel
+                binding -- required over a plain ``ws://`` connection, or against a server that
+                supports SCRAM but not channel binding. Ignored for PLAIN authentication.
 
         Returns:
             None
@@ -1155,6 +1156,14 @@ def get_parser():
             'against a server that does not support channel binding.'
         ),
     )
+    parser.add_argument(
+        '--plain', action='store_true',
+        help=(
+            'Authenticate the API key using PLAIN (send the key in plaintext) instead of '
+            'SCRAM. Required for servers that do not support SCRAM (TrueNAS before 26). '
+            'WARNING: transmits the raw API key; only the TLS layer protects it.'
+        ),
+    )
 
     subparsers = parser.add_subparsers(
         dest='name', metavar='<subcommand>',
@@ -1284,6 +1293,10 @@ def main():
                     elif args.api_key:
                         c.login_with_api_key(
                             args.username, args.api_key,
+                            auth_mechanism=(
+                                APIKeyAuthMech.PLAIN if args.plain
+                                else APIKeyAuthMech.SCRAM
+                            ),
                             channel_binding=not args.no_channel_binding,
                         )
                 except Exception as e:
