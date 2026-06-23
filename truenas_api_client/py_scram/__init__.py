@@ -40,6 +40,11 @@ from .common import (
     ScramAuthData,
 )
 
+from .channel_binding import (
+    CB_TLS_SERVER_END_POINT,
+    compute_tls_server_end_point,
+)
+
 from .client_first import ClientFirstMessage
 from .server_first import ServerFirstMessage
 from .client_final import ClientFinalMessage
@@ -68,6 +73,10 @@ __all__ = [
     # Verification functions
     'verify_server_signature',
     'verify_client_final_message',
+
+    # Channel binding
+    'CB_TLS_SERVER_END_POINT',
+    'compute_tls_server_end_point',
 
     # Auth data generation
     'generate_scram_auth_data',

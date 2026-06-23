@@ -113,6 +113,20 @@ class WSClient:
 
         self.client.on_open()
 
+    def get_peer_cert_der(self) -> bytes | None:
+        """Return the server's TLS certificate in DER form, or `None` for a non-TLS
+        transport. Used to compute the RFC 5929 tls-server-end-point SCRAM channel
+        binding (retrievable even when `verify_ssl` is `False`).
+
+        Precondition: the TLS handshake must be complete (true once `connect()` has run,
+        before any login); before that `getpeercert()` yields an empty value that callers
+        treat as "no certificate".
+        """
+        if isinstance(self.socket, ssl.SSLSocket):
+            return self.socket.getpeercert(binary_form=True)
+
+        return None
+
     def _on_message(self, app, data):
         self.client._recv(json.loads(data))
 
@@ -489,7 +503,9 @@ class LegacyClient:
         self,
         username: str,
         api_key: str,
-        auth_mechanism: APIKeyAuthMech = APIKeyAuthMech.PLAIN
+        auth_mechanism: APIKeyAuthMech = APIKeyAuthMech.PLAIN,
+        *,
+        channel_binding: bool = True,
     ) -> None:
         """
         Helper function to authenticate via API key to the truenas server. Legacy TrueNAS servers
@@ -501,8 +517,12 @@ class LegacyClient:
             username: this parameter is ignored for legacy clients. It exists to ensure consistent
                function signatures for API consumers.
             api_key: either the key material or an absolute path to the file where it is stored
-            auth_mechanism: one of "AUTO", "PLAIN" specifying the type of authentication. A ValueError
-               will be raised if SCRAM is specified.
+            auth_mechanism: "PLAIN" is the only supported value -- legacy servers cannot do SCRAM,
+               so a ValueError is raised if SCRAM is specified. Kept for signature parity with the
+               non-legacy client.
+            channel_binding: ignored for legacy clients. Legacy TrueNAS servers do not implement
+               SCRAM, so there is no channel binding to negotiate. It exists to ensure consistent
+               function signatures for API consumers.
 
         Returns:
             None
