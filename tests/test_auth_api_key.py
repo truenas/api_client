@@ -6,15 +6,21 @@ without requiring a live TrueNAS server connection.
 """
 
 import json
+import socket
+import ssl
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import truenas_api_client.auth_api_key as auth_api_key
+from truenas_api_client import WSClient, get_parser
 from truenas_api_client.auth_api_key import (
     KeyData,
     KeyDataType,
     RAW_KEY_SEPARATOR,
     _parse_ini_config,
+    _resolve_channel_binding,
     get_key_material,
 )
 
@@ -364,6 +370,185 @@ class TestKeyDataType(unittest.TestCase):
         """Test KeyDataType can be compared."""
         self.assertEqual(KeyDataType.RAW, KeyDataType.RAW)
         self.assertNotEqual(KeyDataType.RAW, KeyDataType.PRECOMPUTED)
+
+
+class TestPeerCertAccessor(unittest.TestCase):
+    """Test WSClient.get_peer_cert_der (source of the SCRAM channel binding)."""
+
+    @staticmethod
+    def _ws():
+        return WSClient("ws+unix:///run/middleware.sock", client=None)
+
+    def test_no_socket_returns_none(self):
+        # Before connect() no socket has been assigned.
+        self.assertIsNone(self._ws().get_peer_cert_der())
+
+    def test_non_tls_socket_returns_none(self):
+        ws = self._ws()
+        ws.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            self.assertIsNone(ws.get_peer_cert_der())
+        finally:
+            ws.socket.close()
+
+    def test_tls_socket_returns_der(self):
+        ws = self._ws()
+        ws.socket = mock.Mock(spec=ssl.SSLSocket)
+        ws.socket.getpeercert.return_value = b"DER-CERT-BYTES"
+        self.assertEqual(ws.get_peer_cert_der(), b"DER-CERT-BYTES")
+        ws.socket.getpeercert.assert_called_once_with(binary_form=True)
+
+
+class _StubWS:
+    """Minimal WSClient stand-in for channel-binding policy tests."""
+
+    def __init__(self, *, cert_der=None, url=''):
+        self._cert_der = cert_der
+        self.url = url
+
+    def get_peer_cert_der(self):
+        return self._cert_der
+
+
+class _StubClient:
+    def __init__(self, ws):
+        self._ws = ws
+
+
+class TestResolveChannelBinding(unittest.TestCase):
+    """Test the SCRAM channel-binding policy (_resolve_channel_binding).
+
+    Policy: channel_binding=True requires a binding (TLS binds; the local UNIX socket is
+    exempt; any other non-TLS transport or a backend without support raises).
+    channel_binding=False is always unbound.
+    """
+
+    def test_disabled_is_unbound_over_tls(self):
+        c = _StubClient(_StubWS(cert_der=b'DER', url='wss://nas/api/current'))
+        self.assertIsNone(_resolve_channel_binding(c, False))
+
+    def test_disabled_is_unbound_over_non_tls(self):
+        c = _StubClient(_StubWS(url='ws://nas/api/current'))
+        self.assertIsNone(_resolve_channel_binding(c, False))
+
+    def test_tls_returns_binding(self):
+        c = _StubClient(_StubWS(cert_der=b'DER', url='wss://nas/api/current'))
+        with mock.patch.object(auth_api_key, 'compute_tls_server_end_point',
+                               return_value='BINDING') as m:
+            self.assertEqual(_resolve_channel_binding(c, True), 'BINDING')
+        m.assert_called_once_with(b'DER')
+
+    def test_tls_but_backend_without_support_raises(self):
+        c = _StubClient(_StubWS(cert_der=b'DER', url='wss://nas/api/current'))
+        with mock.patch.object(auth_api_key, 'compute_tls_server_end_point', None):
+            with self.assertRaises(ValueError) as ctx:
+                _resolve_channel_binding(c, True)
+        self.assertIn('channel_binding=False', str(ctx.exception))
+
+    def test_unix_socket_is_exempt(self):
+        # Local IPC: a required binding resolves to unbound rather than failing.
+        c = _StubClient(_StubWS(url='ws+unix:///run/middleware.sock'))
+        self.assertIsNone(_resolve_channel_binding(c, True))
+
+    def test_non_tls_network_raises(self):
+        c = _StubClient(_StubWS(url='ws://nas/api/current'))
+        with self.assertRaises(ValueError) as ctx:
+            _resolve_channel_binding(c, True)
+        self.assertIn('TLS', str(ctx.exception))
+        self.assertIn('channel_binding=False', str(ctx.exception))
+
+    def test_missing_transport_raises_when_required(self):
+        with self.assertRaises(ValueError):
+            _resolve_channel_binding(_StubClient(None), True)
+
+    def test_missing_transport_disabled_is_unbound(self):
+        self.assertIsNone(_resolve_channel_binding(_StubClient(None), False))
+
+
+class TestMidcltChannelBindingFlag(unittest.TestCase):
+    """Test the midclt --no-channel-binding and --plain CLI flags."""
+
+    def test_default_keeps_channel_binding_enabled(self):
+        args = get_parser().parse_args(['call', 'system.info'])
+        self.assertFalse(args.no_channel_binding)
+
+    def test_flag_disables_channel_binding(self):
+        args = get_parser().parse_args(['--no-channel-binding', 'call', 'system.info'])
+        self.assertTrue(args.no_channel_binding)
+
+    def test_default_uses_scram_not_plain(self):
+        args = get_parser().parse_args(['call', 'system.info'])
+        self.assertFalse(args.plain)
+
+    def test_plain_flag_selects_plain(self):
+        args = get_parser().parse_args(['--plain', 'call', 'system.info'])
+        self.assertTrue(args.plain)
+
+
+class _CallStubClient:
+    """Minimal Client stand-in: canned auth.mechanism_choices, records every call."""
+
+    def __init__(self, mechanisms, *, responses=None):
+        self._mechanisms = mechanisms
+        self._responses = responses or {}
+        self.calls = []
+
+    def call(self, method, *args):
+        self.calls.append(method)
+        if method == 'auth.mechanism_choices':
+            return self._mechanisms
+        # Default to a generic SUCCESS so the PLAIN/legacy paths complete.
+        return self._responses.get(method, {'response_type': 'SUCCESS'})
+
+
+# A syntactically valid raw API key (<id>-<key>). The SCRAM path (which would run
+# PBKDF2 on this) is never reached by these mechanism-policy tests.
+_RAW_KEY = '7-' + 'a' * 64
+
+
+class TestApiKeyMechanismPolicy(unittest.TestCase):
+    """The client must never auto-downgrade to plaintext. SCRAM (the default) refuses --
+    without transmitting the key -- when the server does not advertise SCRAM; PLAIN is an
+    explicit opt-in that sends the key."""
+
+    def test_scram_no_scram_server_raises_without_sending_key(self):
+        c = _CallStubClient(['API_KEY_PLAIN'])
+        with self.assertRaises(ValueError) as ctx:
+            auth_api_key.api_key_authenticate(
+                c, auth_api_key.APIKeyAuthMech.SCRAM, 'user', _RAW_KEY,
+            )
+        # Points the caller at the explicit opt-in...
+        self.assertIn('PLAIN', str(ctx.exception))
+        # ...and, security-critical, the key was NOT transmitted before the refusal.
+        self.assertNotIn('auth.login_ex', c.calls)
+
+    def test_explicit_plain_sends_key(self):
+        c = _CallStubClient(['API_KEY_PLAIN'])
+        auth_api_key.api_key_authenticate(
+            c, auth_api_key.APIKeyAuthMech.PLAIN, 'user', _RAW_KEY,
+        )
+        # The explicit opt-in completes the plaintext exchange.
+        self.assertIn('auth.login_ex', c.calls)
+
+    def test_legacy_endpoint_uses_plain_path(self):
+        # LegacyClient authenticates via PLAIN over the legacy /websocket endpoint.
+        c = _CallStubClient(['API_KEY_PLAIN'])
+        auth_api_key.api_key_authenticate(
+            c, auth_api_key.APIKeyAuthMech.PLAIN, 'user', _RAW_KEY,
+            use_legacy_endpoint=True,
+        )
+        self.assertIn('auth.login_with_api_key', c.calls)
+
+    def test_jsonrpc_login_defaults_to_scram(self):
+        # Lock the security-relevant default: API-key login must default to SCRAM, never a
+        # mechanism that could transmit the key in plaintext.
+        import inspect
+        from truenas_api_client import JSONRPCClient
+        sig = inspect.signature(JSONRPCClient.login_with_api_key)
+        self.assertEqual(
+            sig.parameters['auth_mechanism'].default,
+            auth_api_key.APIKeyAuthMech.SCRAM,
+        )
 
 
 if __name__ == '__main__':

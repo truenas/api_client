@@ -448,5 +448,23 @@ class TestTNScramClientFullFlow(unittest.TestCase):
         self.assertTrue(result)
 
 
+class TestTNScramClientChannelBinding(unittest.TestCase):
+    """Test SCRAM-PLUS channel binding plumbing in TNScramClient."""
+
+    def test_client_first_uses_p_gs2_flag(self):
+        """channel_binding_type produces a "p=<cb-name>" gs2 cbind flag on the wire."""
+        client = TNScramClient(raw_key_material="test_password", api_key_id=7)
+        msg = client.get_client_first_message(
+            username="testuser", channel_binding_type="tls-server-end-point"
+        )
+        self.assertTrue(msg["rfc_str"].startswith("p=tls-server-end-point,,"))
+
+    def test_client_first_without_binding_is_unbound(self):
+        """Without channel binding the gs2 header is the no-binding "n,," flag."""
+        client = TNScramClient(raw_key_material="test_password", api_key_id=7)
+        msg = client.get_client_first_message(username="testuser")
+        self.assertTrue(msg["rfc_str"].startswith("n,,"))
+
+
 if __name__ == '__main__':
     unittest.main()

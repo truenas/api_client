@@ -31,6 +31,8 @@ jobs:
         apt install -y python3-pip python3-setuptools python3-build libidn-dev
         apt install -y python3-argparse-manpage
         apt install -y python3-websocket
+        # python3-cryptography: test-only oracle for the channel-binding conformance tests
+        apt install -y python3-cryptography
 
     - name: Build truenas_scram Debian packages
       run: |

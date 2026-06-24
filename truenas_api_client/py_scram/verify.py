@@ -76,7 +76,11 @@ def verify_server_signature(
     # Get client-final-message-without-proof
     # Reconstruct the channel binding part
     if client_final.channel_binding:
-        gs2_header_str = client_first.gs2_header or 'n,,'
+        # cbind-input = gs2-header + cbind-data (RFC 5802 6). The gs2-header is the cbind
+        # flag plus the empty-authzid separator, exactly as ClientFinalMessage emitted it
+        # (e.g. "p=tls-server-end-point,,"); this must match client_final.py byte-for-byte
+        # or the reconstructed AuthMessage -- and thus signature verification -- will fail.
+        gs2_header_str = (client_first.gs2_header or 'n') + GS2_SEPARATOR
         cb_data = gs2_header_str.encode() + bytes(client_final.channel_binding)
         channel_binding_b64 = b64encode(cb_data).decode()
     else:
@@ -160,7 +164,11 @@ def verify_client_final_message(
     # Get client-final-message-without-proof
     # Reconstruct the channel binding part
     if client_final.channel_binding:
-        gs2_header_str = client_first.gs2_header or 'n,,'
+        # cbind-input = gs2-header + cbind-data (RFC 5802 6). The gs2-header is the cbind
+        # flag plus the empty-authzid separator, exactly as ClientFinalMessage emitted it
+        # (e.g. "p=tls-server-end-point,,"); this must match client_final.py byte-for-byte
+        # or the reconstructed AuthMessage -- and thus signature verification -- will fail.
+        gs2_header_str = (client_first.gs2_header or 'n') + GS2_SEPARATOR
         cb_data = gs2_header_str.encode() + bytes(client_final.channel_binding)
         channel_binding_b64 = b64encode(cb_data).decode()
     else:

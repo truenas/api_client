@@ -5,9 +5,50 @@ This test suite validates the pure Python implementation works correctly
 independent of the C extension.
 """
 
+import hashlib
+import hmac
 import unittest
+from base64 import b64decode, b64encode
 
 import truenas_api_client.py_scram as py_scram
+
+try:
+    from ._cb_test_vectors import CB_VECTORS, REJECTED_VECTORS
+except ImportError:  # direct execution: python3 tests/scram/test_py_scram.py
+    from _cb_test_vectors import CB_VECTORS, REJECTED_VECTORS  # type: ignore
+
+try:
+    # Test-only oracle (not a runtime dependency of the client).
+    from cryptography import x509 as _x509  # type: ignore
+    from cryptography.exceptions import UnsupportedAlgorithm as _CryptoUnsupported  # type: ignore
+    _HAVE_CRYPTOGRAPHY = True
+except ImportError:
+    _HAVE_CRYPTOGRAPHY = False
+
+# Self-signed RSA-2048 / sha256WithRSAEncryption certificate (DER). Its RFC 5929
+# tls-server-end-point value equals SHA-256(DER) because the cert is SHA-256 signed.
+_CB_TEST_CERT_DER = b64decode(
+    "MIIDAzCCAeugAwIBAgIUU8DHCkgRz1ra3Hc0Hhdyypn/bq4wDQYJKoZIhvcNAQEL"
+    "BQAwETEPMA0GA1UEAwwGcnNhMjU2MB4XDTI2MDYxODE4NDAyMVoXDTI2MDYxOTE4"
+    "NDAyMVowETEPMA0GA1UEAwwGcnNhMjU2MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A"
+    "MIIBCgKCAQEAn3RdfzhUjYiv3rrVCxga+sKEF4TavdzRW0vBoAP+XFWMyDEEfLEL"
+    "V5z4sVGvs6vpbc9bRkgPlYbzjs3GDRtDjdJHV8SbLPQtG/M8wdCHuRbM8r2/H8vL"
+    "h4q+GNeZ14jzSQTvsRfbxNNoyZxRDPnYlqTCmPEhU7PojrJia8/088OaC0W92nOf"
+    "S7CDwdHKPOmjsBMefAWWRgfTO4PHVPhIvZ+BrQeTUsJRsiSNSYTCPA5LvjRPuvrN"
+    "VRjxggidHuoOTQuJVBr91mSsWN32ZqeEtWjPThsr1KXj+hpolYWCMoR/I64VypzA"
+    "LHnMZrYxwZIRrpF4x5pips1/8nh1J7/UpQIDAQABo1MwUTAdBgNVHQ4EFgQU4QBk"
+    "o+s6X7VIK1CVjb5Cx+VDo6owHwYDVR0jBBgwFoAU4QBko+s6X7VIK1CVjb5Cx+VD"
+    "o6owDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAlDfSQoKry1Og"
+    "XzY1JSRVWVIBC5Mevgt0rA0u6hlSNp+MC1p/KvN2Q25IWZznQfkPLtFvIEwBehsW"
+    "h7xQ+R3DDbr2rX1z6gUKLfS2GkEPUn51YBlwjeuBNkOTb4svonOlXF4cG04bJN62"
+    "NkgXz/U0Tyf4V7BEd82bxn/eChP34sTWb5AA2+iyp4MNkqk1j12gBKaxn7vtiXJn"
+    "XIIVXgOS2zezizp8zXrd39Hjd/qWdkZDv4hN/ZMnDuQ9HclYwtamL5Taf9YFKDBw"
+    "puLEOWIalVSCsq28yqvbPg31430JYH0dNWrpC93+Q9UU2UM30Ai6kp5pLo7b18DI"
+    "WnZ+wlB6zQ=="
+)
+_CB_TEST_TLS_SERVER_END_POINT = bytes.fromhex(
+    "ca99f0a27c89a259826d94640a18ffabe26154fe5d23ffa3d2dfdbc07fa87f5b"
+)
 
 
 class TestCryptoDatum(unittest.TestCase):
@@ -55,6 +96,20 @@ class TestClientFirstMessage(unittest.TestCase):
         msg = py_scram.ClientFirstMessage(username="testuser", gs2_header="n")
 
         self.assertEqual(msg.gs2_header, "n")
+
+    def test_channel_binding_type_builds_p_flag(self):
+        """A channel_binding_type produces a 'p=<cb-name>,,' gs2 cbind flag."""
+        msg = py_scram.ClientFirstMessage(
+            username="testuser", channel_binding_type="tls-server-end-point")
+
+        self.assertEqual(msg.gs2_header, "p=tls-server-end-point")
+        self.assertTrue(str(msg).startswith("p=tls-server-end-point,,"))
+
+    def test_empty_channel_binding_type_rejected(self):
+        """An empty channel_binding_type would emit a malformed 'p=' header; it is
+        rejected, matching the C library's scram_build_gs2_header()."""
+        with self.assertRaises(ValueError):
+            py_scram.ClientFirstMessage(username="testuser", channel_binding_type="")
 
     def test_serialization(self):
         """Test ClientFirstMessage serialization."""
@@ -490,6 +545,156 @@ class TestCryptoFunctions(unittest.TestCase):
 
         self.assertTrue(py_scram.scram_constant_time_compare(a, b))
         self.assertFalse(py_scram.scram_constant_time_compare(a, c))
+
+
+class TestChannelBinding(unittest.TestCase):
+    """Test py_scram RFC 5929 tls-server-end-point channel binding."""
+
+    def test_compute_matches_expected(self):
+        binding = py_scram.compute_tls_server_end_point(_CB_TEST_CERT_DER)
+        self.assertIsInstance(binding, py_scram.CryptoDatum)
+        self.assertEqual(bytes(binding), _CB_TEST_TLS_SERVER_END_POINT)
+
+    def test_cb_name_constant(self):
+        self.assertEqual(py_scram.CB_TLS_SERVER_END_POINT, "tls-server-end-point")
+
+    def test_rejects_non_certificate(self):
+        with self.assertRaises(ValueError):
+            py_scram.compute_tls_server_end_point(b"not a certificate")
+
+    def test_rejects_undefined_signature_algorithm(self):
+        """Signature algorithms with no single well-defined hash (e.g. EdDSA) are
+        rejected, matching the C library."""
+        for name, cert_der in REJECTED_VECTORS:
+            with self.subTest(cert=name):
+                with self.assertRaises(ValueError):
+                    py_scram.compute_tls_server_end_point(cert_der)
+
+    def test_signature_algorithm_hashes(self):
+        """Lock the OID->hash selection without the C ext: RSA-PSS (digest read from
+        the signature parameters), DSA, ECDSA-SHA384, and the SHA-1 -> SHA-256
+        promotion each yield the expected digest."""
+        expected_len = {
+            'rsa_pss_sha256': 32, 'rsa_pss_sha512': 64, 'ecdsa_sha384': 48,
+            'rsa_sha1': 32,  # SHA-1 promoted to SHA-256
+            'dsa_sha256': 32,
+        }
+        for name, cert_der, expected in CB_VECTORS:
+            with self.subTest(cert=name):
+                binding = py_scram.compute_tls_server_end_point(cert_der)
+                self.assertEqual(bytes(binding), expected)
+                self.assertEqual(len(bytes(binding)), expected_len[name])
+
+
+class TestChannelBindingServerSignatureRoundTrip(unittest.TestCase):
+    """Regression test for the cbind-input reconstruction in verify_server_signature.
+
+    A channel-bound exchange built and verified entirely by py_scram must round-trip.
+    verify_server_signature reconstructs the c= attribute to recompute the AuthMessage;
+    if that reconstruction drifts from ClientFinalMessage (e.g. dropping the ',,' that
+    follows the gs2 cbind flag), the bound case fails even though everything is correct.
+    """
+
+    @staticmethod
+    def _auth_data():
+        salt = py_scram.CryptoDatum(b'\x11' * 16)
+        iters = py_scram.SCRAM_MIN_ITERS
+        salted = py_scram.CryptoDatum(
+            hashlib.pbkdf2_hmac('sha512', b'secret', bytes(salt), iters)
+        )
+        return salt, iters, py_scram.generate_scram_auth_data(
+            salted_password=salted, salt=salt, iterations=iters
+        )
+
+    @staticmethod
+    def _server_final(cf, sf, fin, server_key):
+        """Build the SERVER_FINAL_MESSAGE the way a server would: sign the AuthMessage
+        (which embeds the client's c= verbatim) with HMAC(ServerKey, ...)."""
+        c_attr = next(p[2:] for p in str(fin).split(',') if p.startswith('c='))
+        r_attr = next(p[2:] for p in str(fin).split(',') if p.startswith('r='))
+        bare = str(cf).split(',,', 1)[1]
+        auth_msg = f'{bare},{sf},c={c_attr},r={r_attr}'
+        sig = hmac.new(bytes(server_key), auth_msg.encode(), 'sha512').digest()
+        return py_scram.ServerFinalMessage(rfc_string=f'v={b64encode(sig).decode()}')
+
+    def test_bound_round_trip(self):
+        salt, iters, auth = self._auth_data()
+        binding = py_scram.compute_tls_server_end_point(_CB_TEST_CERT_DER)
+        cf = py_scram.ClientFirstMessage(
+            username='u', api_key_id=5,
+            channel_binding_type=py_scram.CB_TLS_SERVER_END_POINT,
+        )
+        sf = py_scram.ServerFirstMessage(client_first=cf, salt=salt, iterations=iters)
+        fin = py_scram.ClientFinalMessage(
+            client_first=cf, server_first=sf,
+            client_key=auth.client_key, stored_key=auth.stored_key,
+            channel_binding=binding,
+        )
+        server_final = self._server_final(cf, sf, fin, auth.server_key)
+        # Must not raise: the reconstructed c= must match what the client sent.
+        py_scram.verify_server_signature(
+            client_first=cf, server_first=sf, client_final=fin,
+            server_final=server_final, server_key=auth.server_key,
+        )
+
+    def test_unbound_round_trip(self):
+        salt, iters, auth = self._auth_data()
+        cf = py_scram.ClientFirstMessage(username='u', api_key_id=5)
+        sf = py_scram.ServerFirstMessage(client_first=cf, salt=salt, iterations=iters)
+        fin = py_scram.ClientFinalMessage(
+            client_first=cf, server_first=sf,
+            client_key=auth.client_key, stored_key=auth.stored_key,
+        )
+        server_final = self._server_final(cf, sf, fin, auth.server_key)
+        py_scram.verify_server_signature(
+            client_first=cf, server_first=sf, client_final=fin,
+            server_final=server_final, server_key=auth.server_key,
+        )
+
+
+def _cryptography_tls_server_end_point(cert_der):
+    """Independent reference using python-cryptography: hash the certificate with the
+    digest from its own signature algorithm (MD5/SHA-1 promoted to SHA-256, RFC 5929
+    4.1), or raise ValueError when the algorithm defines no single hash (e.g. EdDSA)."""
+    cert = _x509.load_der_x509_certificate(bytes(cert_der))
+    try:
+        sig_hash = cert.signature_hash_algorithm
+    except _CryptoUnsupported:
+        sig_hash = None
+    if sig_hash is None:
+        raise ValueError('tls-server-end-point is undefined for this certificate')
+    name = sig_hash.name
+    if name in ('md5', 'sha1'):
+        name = 'sha256'
+    return hashlib.new(name, bytes(cert_der)).digest()
+
+
+@unittest.skipUnless(_HAVE_CRYPTOGRAPHY, 'python-cryptography not installed')
+class TestChannelBindingCryptographyConformance(unittest.TestCase):
+    """Cross-check the pure-python (fallback) channel-binding parser against an
+    independent python-cryptography reference -- a third oracle alongside the
+    truenas_pyscram C extension (test_compatibility.py) and the frozen vectors.
+
+    py_scram.compute_tls_server_end_point only runs when the C extension is absent,
+    so this guards a rarely-exercised path: it confirms the hand-rolled DER walk
+    selects the same signature digest cryptography's ASN.1 parser does.
+    """
+
+    def test_matches_cryptography(self):
+        for name, cert_der, _expected in CB_VECTORS:
+            with self.subTest(cert=name):
+                self.assertEqual(
+                    bytes(py_scram.compute_tls_server_end_point(cert_der)),
+                    _cryptography_tls_server_end_point(cert_der),
+                )
+
+    def test_rejection_agrees_with_cryptography(self):
+        for name, cert_der in REJECTED_VECTORS:
+            with self.subTest(cert=name):
+                with self.assertRaises(ValueError):
+                    py_scram.compute_tls_server_end_point(cert_der)
+                with self.assertRaises(ValueError):
+                    _cryptography_tls_server_end_point(cert_der)
 
 
 if __name__ == '__main__':

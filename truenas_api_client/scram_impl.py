@@ -124,6 +124,12 @@ ScramError = truenas_pyscram.ScramError
 # Export error codes
 SCRAM_E_AUTH_FAILED = getattr(truenas_pyscram, 'SCRAM_E_AUTH_FAILED', 7)
 
+# Channel binding (RFC 5929 tls-server-end-point). Present on truenas_pyscram >= 0.2.0
+# and on the bundled py_scram fallback; absent on older C extensions, in which case
+# compute_tls_server_end_point is None and callers must skip channel binding.
+CB_TLS_SERVER_END_POINT = getattr(truenas_pyscram, 'CB_TLS_SERVER_END_POINT', 'tls-server-end-point')
+compute_tls_server_end_point = getattr(truenas_pyscram, 'compute_tls_server_end_point', None)
+
 
 class ScramMessageType(StrEnum):
     CLIENT_FIRST_MESSAGE = 'CLIENT_FIRST_MESSAGE'
@@ -188,7 +194,8 @@ class TNScramClient:
     def get_client_first_message(
         self,
         username: str,
-        gs2_header: str | None = None
+        gs2_header: str | None = None,
+        channel_binding_type: str | None = None,
     ) -> ScramMessage:
         """
         Generate the first message of the client-server exchange. We slightly depart
@@ -217,6 +224,8 @@ class TNScramClient:
         }
         if gs2_header is not None:
             kwargs['gs2_header'] = gs2_header
+        if channel_binding_type is not None:
+            kwargs['channel_binding_type'] = channel_binding_type
 
         self.client_first_message = truenas_pyscram.ClientFirstMessage(**kwargs)
         return ScramMessage(

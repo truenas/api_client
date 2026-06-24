@@ -6,11 +6,38 @@ produces identical results to the C extension (truenas_pyscram).
 """
 
 import unittest
-from base64 import b64encode
+from base64 import b64decode, b64encode
 from ssl import RAND_bytes
 
 import truenas_pyscram  # type: ignore
 import truenas_api_client.py_scram as py_scram
+
+try:
+    from ._cb_test_vectors import CB_VECTORS, REJECTED_VECTORS
+except ImportError:  # direct execution: python3 tests/scram/test_compatibility.py
+    from _cb_test_vectors import CB_VECTORS, REJECTED_VECTORS  # type: ignore
+
+# Self-signed RSA-2048 / sha256WithRSAEncryption certificate (DER) for channel-binding
+# parity checks (tls-server-end-point == SHA-256(DER) for a SHA-256-signed cert).
+_CB_TEST_CERT_DER = b64decode(
+    "MIIDAzCCAeugAwIBAgIUU8DHCkgRz1ra3Hc0Hhdyypn/bq4wDQYJKoZIhvcNAQEL"
+    "BQAwETEPMA0GA1UEAwwGcnNhMjU2MB4XDTI2MDYxODE4NDAyMVoXDTI2MDYxOTE4"
+    "NDAyMVowETEPMA0GA1UEAwwGcnNhMjU2MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A"
+    "MIIBCgKCAQEAn3RdfzhUjYiv3rrVCxga+sKEF4TavdzRW0vBoAP+XFWMyDEEfLEL"
+    "V5z4sVGvs6vpbc9bRkgPlYbzjs3GDRtDjdJHV8SbLPQtG/M8wdCHuRbM8r2/H8vL"
+    "h4q+GNeZ14jzSQTvsRfbxNNoyZxRDPnYlqTCmPEhU7PojrJia8/088OaC0W92nOf"
+    "S7CDwdHKPOmjsBMefAWWRgfTO4PHVPhIvZ+BrQeTUsJRsiSNSYTCPA5LvjRPuvrN"
+    "VRjxggidHuoOTQuJVBr91mSsWN32ZqeEtWjPThsr1KXj+hpolYWCMoR/I64VypzA"
+    "LHnMZrYxwZIRrpF4x5pips1/8nh1J7/UpQIDAQABo1MwUTAdBgNVHQ4EFgQU4QBk"
+    "o+s6X7VIK1CVjb5Cx+VDo6owHwYDVR0jBBgwFoAU4QBko+s6X7VIK1CVjb5Cx+VD"
+    "o6owDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAlDfSQoKry1Og"
+    "XzY1JSRVWVIBC5Mevgt0rA0u6hlSNp+MC1p/KvN2Q25IWZznQfkPLtFvIEwBehsW"
+    "h7xQ+R3DDbr2rX1z6gUKLfS2GkEPUn51YBlwjeuBNkOTb4svonOlXF4cG04bJN62"
+    "NkgXz/U0Tyf4V7BEd82bxn/eChP34sTWb5AA2+iyp4MNkqk1j12gBKaxn7vtiXJn"
+    "XIIVXgOS2zezizp8zXrd39Hjd/qWdkZDv4hN/ZMnDuQ9HclYwtamL5Taf9YFKDBw"
+    "puLEOWIalVSCsq28yqvbPg31430JYH0dNWrpC93+Q9UU2UM30Ai6kp5pLo7b18DI"
+    "WnZ+wlB6zQ=="
+)
 
 
 class TestClientFirstMessageCompatibility(unittest.TestCase):
@@ -346,6 +373,90 @@ class TestVerificationFunctionCompatibility(unittest.TestCase):
             server_final=server_final,
             server_key=self.auth_data.server_key
         )
+
+
+class TestChannelBindingCompatibility(unittest.TestCase):
+    """Test tls-server-end-point channel binding parity between implementations."""
+
+    def test_compute_parity(self):
+        c = bytes(truenas_pyscram.compute_tls_server_end_point(_CB_TEST_CERT_DER))
+        p = bytes(py_scram.compute_tls_server_end_point(_CB_TEST_CERT_DER))
+        self.assertEqual(c, p)
+
+    def test_signature_algorithm_parity(self):
+        """py_scram mirrors the C extension across RSA-PSS / DSA / ECDSA / SHA-1 promotion."""
+        for name, cert_der, expected in CB_VECTORS:
+            with self.subTest(cert=name):
+                p = bytes(py_scram.compute_tls_server_end_point(cert_der))
+                c = bytes(truenas_pyscram.compute_tls_server_end_point(cert_der))
+                self.assertEqual(p, expected, f'{name}: py_scram diverged')
+                self.assertEqual(c, expected, f'{name}: C extension diverged')
+
+    def test_undefined_signature_algorithm_rejected_by_both(self):
+        """EdDSA (no single signature hash) is rejected by py_scram and the C
+        extension alike -- the divergence-free boundary of the OID table."""
+        for name, cert_der in REJECTED_VECTORS:
+            with self.subTest(cert=name):
+                with self.assertRaises(ValueError):
+                    py_scram.compute_tls_server_end_point(cert_der)
+                with self.assertRaises(Exception):
+                    truenas_pyscram.compute_tls_server_end_point(cert_der)
+
+    def test_cb_name_constant_parity(self):
+        self.assertEqual(py_scram.CB_TLS_SERVER_END_POINT, truenas_pyscram.CB_TLS_SERVER_END_POINT)
+
+    def _build_py_bound_exchange(self, auth, binding):
+        py_cf = py_scram.ClientFirstMessage(
+            username="u", api_key_id=5,
+            channel_binding_type=py_scram.CB_TLS_SERVER_END_POINT,
+        )
+        py_sf = py_scram.ServerFirstMessage(
+            client_first=py_cf,
+            salt=py_scram.CryptoDatum(bytes(auth.salt)),
+            iterations=auth.iterations,
+        )
+        py_fin = py_scram.ClientFinalMessage(
+            client_first=py_cf, server_first=py_sf,
+            client_key=py_scram.CryptoDatum(bytes(auth.client_key)),
+            stored_key=py_scram.CryptoDatum(bytes(auth.stored_key)),
+            channel_binding=binding,
+        )
+        return py_cf, py_sf, py_fin
+
+    def test_py_bound_exchange_verified_by_c_extension(self):
+        """A fully py_scram-built channel-bound exchange is accepted by the C-ext server."""
+        auth = truenas_pyscram.generate_scram_auth_data()
+        binding = py_scram.compute_tls_server_end_point(_CB_TEST_CERT_DER)
+        py_cf, py_sf, py_fin = self._build_py_bound_exchange(auth, binding)
+
+        # c= must be base64("p=tls-server-end-point,," + binding).
+        c_attr = next(part[2:] for part in str(py_fin).split(",") if part.startswith("c="))
+        self.assertEqual(c_attr, b64encode(b"p=tls-server-end-point,," + bytes(binding)).decode())
+
+        # The C-extension server verifier accepts the py-built bound final.
+        truenas_pyscram.verify_client_final_message(
+            truenas_pyscram.ClientFirstMessage(rfc_string=str(py_cf)),
+            truenas_pyscram.ServerFirstMessage(rfc_string=str(py_sf)),
+            truenas_pyscram.ClientFinalMessage(rfc_string=str(py_fin)),
+            auth.stored_key,
+            channel_binding=truenas_pyscram.compute_tls_server_end_point(_CB_TEST_CERT_DER),
+            require_channel_binding=True,
+        )
+
+    def test_wrong_binding_rejected_by_c_extension(self):
+        auth = truenas_pyscram.generate_scram_auth_data()
+        binding = py_scram.compute_tls_server_end_point(_CB_TEST_CERT_DER)
+        py_cf, py_sf, py_fin = self._build_py_bound_exchange(auth, binding)
+
+        with self.assertRaises(Exception):
+            truenas_pyscram.verify_client_final_message(
+                truenas_pyscram.ClientFirstMessage(rfc_string=str(py_cf)),
+                truenas_pyscram.ServerFirstMessage(rfc_string=str(py_sf)),
+                truenas_pyscram.ClientFinalMessage(rfc_string=str(py_fin)),
+                auth.stored_key,
+                channel_binding=truenas_pyscram.CryptoDatum(b"\x00" * 32),
+                require_channel_binding=True,
+            )
 
 
 if __name__ == '__main__':
