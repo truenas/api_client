@@ -64,7 +64,7 @@ class JSONEncoder(json.JSONEncoder):
         elif isinstance(obj, IPv6Interface):
             return {'$ipv6_interface': str(obj)}
         elif BaseModel is not None and isinstance(obj, BaseModel):
-            return obj.model_dump()
+            return obj.model_dump(warnings=False, by_alias=True)
         return super(JSONEncoder, self).default(obj)
 
 
