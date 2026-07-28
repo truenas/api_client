@@ -155,6 +155,14 @@ class WSClient:
             self.socket.connect(self.url.removeprefix(UNIX_SOCKET_PREFIX))
             app_url = DUMMY_HOSTNAME
         elif self.reserved_ports:
+            # The reserved-port path connects a raw socket and hands WebSocketApp a plaintext
+            # dummy ws:// URL below, so TLS is never negotiated here. A wss:// URI would therefore
+            # be silently downgraded to cleartext (verify_ssl is ignored); fail closed instead.
+            if urllib.parse.urlparse(self.url).scheme == 'wss':
+                raise ClientException(
+                    'reserved_ports connections do not support TLS; a wss:// URI cannot be used '
+                    'with reserved_ports=True (would downgrade the connection to plaintext)'
+                )
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.settimeout(10)
             self._bind_to_reserved_port()
