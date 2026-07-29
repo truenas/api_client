@@ -376,20 +376,27 @@ class Job:
         job = self.client._jobs.pop(self.job_id, None)
         if job is None:
             raise ClientException('No job event was received.')
-        if job['state'] != 'SUCCESS':
-            if job['exc_info'] and job['exc_info']['type'] == 'VALIDATION':
-                raise ValidationErrors(job['exc_info']['extra'] or [])
+        state = job.get('state')
+        if state == 'SUCCESS':
+            return job['result']
+
+        exc_info = job.get('exc_info')
+        if exc_info:
+            if exc_info['type'] == 'VALIDATION':
+                raise ValidationErrors(exc_info['extra'] or [])
             raise ClientException(
                 job['error'],
                 trace={
-                    'class': job['exc_info']['type'],
+                    'class': exc_info['type'],
                     'frames': [],
                     'formatted': job['exception'],
-                    'repr': job['exc_info'].get('repr', job['exception'].splitlines()[-1]),
+                    'repr': exc_info.get('repr') or job['exception'].splitlines()[-1],
                 },
-                extra=job['exc_info']['extra']
+                extra=exc_info['extra'],
             )
-        return job['result']
+
+        # Aborted or interrupted jobs have no exc_info to build a trace from.
+        raise ClientException(job.get('error') or f'Job {self.job_id} did not succeed (state={state!r})')
 
 
 class _EventCallbackProtocol(Protocol):
@@ -696,13 +703,17 @@ class JSONRPCClient:
                 call.returned.set()
                 self._unregister_call(call)
 
-        for job in self._jobs.values():
+        # Snapshot: _jobs can be resized concurrently (a woken result() pops, the reader inserts).
+        for job in list(self._jobs.values()):
             event = job.get('__ready')
             if event is None:
                 event = job['__ready'] = Event()
 
             if not event.is_set():
                 error_repr = repr(error)
+                # The connection dropped, so the real outcome is unknown (the job may still be
+                # running server-side); just mark it non-SUCCESS for Job.result().
+                job['state'] = 'UNKNOWN'
                 job['error'] = error_repr
                 job['exception'] = error_repr
                 job['exc_info'] = {
