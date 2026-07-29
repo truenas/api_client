@@ -134,15 +134,19 @@ def get_key_material(key: str) -> KeyData:
     # Try parsing as structured data (JSON or INI format)
     try:
         data = loads(key)
-    except JSONDecodeError as json_err:
+    except JSONDecodeError:
         try:
             data = _parse_ini_config(key)
-        except (ConfigParserError, KeyError, ValueError) as ini_err:
+        except ConfigParserError:
+            # When key material isn't a raw key or JSON, the ConfigParser fallback raises
+            # MissingSectionHeaderError, whose message is confusing rather than useful guidance.
+            # Replace it with a clear message naming the accepted formats, and suppress the chain
+            # so that internal error isn't re-surfaced. ValueError/KeyError raised by
+            # _parse_ini_config itself are useful diagnostics and are allowed to propagate.
             raise ValueError(
-                f'Key material must be either a raw API key (format: <id>-<key>), '
-                f'valid JSON, or valid INI/ConfigParser format. '
-                f'JSON error: {json_err}. INI error: {ini_err}'
-            ) from ini_err
+                'Key material must be either a raw API key (format: <id>-<key>), '
+                'valid JSON, or valid INI/ConfigParser format'
+            ) from None
 
     # Construct the appropriate type based on the fields present
     try:
