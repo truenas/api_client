@@ -3,8 +3,8 @@
 
 from base64 import b64encode, b64decode
 
-from .scram_crypto import CryptoDatum, scram_hmac_sha512, scram_xor_bytes
-from .common import GS2_SEPARATOR, GS2_NO_CHANNEL_BINDING
+from .scram_crypto import CryptoDatum, scram_hmac_sha512, scram_xor_bytes, SCRAM_NONCE_SIZE, SHA512_DIGEST_SIZE
+from .common import GS2_SEPARATOR
 from .client_first import ClientFirstMessage
 from .server_first import ServerFirstMessage
 
@@ -113,17 +113,22 @@ class ClientFinalMessage:
             self.__channel_binding = channel_binding
             self.__gs2_header = client_first.gs2_header
 
-            # Prepare channel binding for message
-            if channel_binding:
-                # cbind-input = gs2-header + cbind-data (RFC 5802 6). The gs2-header is the
-                # cbind flag plus the empty-authzid separator exactly as it appears in
-                # client-first, e.g. "p=tls-server-end-point,,".
-                gs2_header_str = (client_first.gs2_header or 'n') + GS2_SEPARATOR
-                cb_data = gs2_header_str.encode() + bytes(channel_binding)
-                channel_binding_b64 = b64encode(cb_data).decode()
-            else:
-                # No channel binding - use standard GS2_NO_CHANNEL_BINDING
-                channel_binding_b64 = GS2_NO_CHANNEL_BINDING
+            # Validate the gs2 flag / channel-binding combination (RFC 5802 6), matching the C
+            # library's check_gs2_cb_consistency: a 'p' flag requires binding data, and any other
+            # flag ('n'/'y', or no header) must not carry any.
+            gs2_flag = (client_first.gs2_header or 'n')[0]
+            have_cb = bool(channel_binding)
+            if gs2_flag == 'p' and not have_cb:
+                raise ValueError("gs2 channel-binding flag 'p' requires channel binding data")
+            if gs2_flag != 'p' and have_cb:
+                raise ValueError("channel binding data provided but gs2 flag is not 'p'")
+
+            # c= is base64(cbind-input) where cbind-input = gs2-header + ",," + [cbind-data]
+            # (RFC 5802 7); the gs2-header defaults to "n". Mirrors the C library's
+            # scram_serialize_client_final_message so both backends emit the same c= value.
+            gs2_header_str = (client_first.gs2_header or 'n') + GS2_SEPARATOR
+            cb_data = gs2_header_str.encode() + (bytes(channel_binding) if have_cb else b'')
+            channel_binding_b64 = b64encode(cb_data).decode()
 
             # Compute auth message
             auth_message = self.__compute_auth_message(client_first, server_first, channel_binding_b64)
@@ -183,6 +188,13 @@ class ClientFinalMessage:
                 client_proof_bytes = None
         except Exception as e:
             raise ValueError(f'Invalid base64 encoding in client final message: {e}')
+
+        # Match the C parser (scram_attr_parse): the nonce is a 32- or 64-byte value and the
+        # client proof, when present, is a SHA-512 digest.
+        if len(nonce_bytes) not in (SCRAM_NONCE_SIZE, SCRAM_NONCE_SIZE * 2):
+            raise ValueError(f'{len(nonce_bytes)}: unexpected nonce size')
+        if client_proof_bytes is not None and len(client_proof_bytes) != SHA512_DIGEST_SIZE:
+            raise ValueError(f'{len(client_proof_bytes)}: unexpected client proof size')
 
         self.__nonce = CryptoDatum(nonce_bytes)
         self.__channel_binding = CryptoDatum(channel_binding_bytes) if channel_binding_bytes else None
