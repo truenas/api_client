@@ -3,7 +3,9 @@
 
 from base64 import b64encode, b64decode
 
-from .scram_crypto import CryptoDatum, generate_nonce, SCRAM_MAX_ITERS
+from .scram_crypto import (
+    CryptoDatum, generate_nonce, SCRAM_MAX_ITERS, SCRAM_MIN_ITERS, SCRAM_NONCE_SIZE, SCRAM_MAX_SALT_SZ,
+)
 from .client_first import ClientFirstMessage
 from .error import ScramError, SCRAM_E_INVALID_REQUEST
 
@@ -92,10 +94,10 @@ class ServerFirstMessage:
         if nonce_b64 is None or salt_b64 is None or iterations is None:
             raise ValueError('Missing required fields in server first message')
 
-        # Validate iterations (like C extension does)
-        if iterations > SCRAM_MAX_ITERS:
+        # Validate iterations against the same bounds as the C parser (scram_parse_iteration_cnt).
+        if iterations < SCRAM_MIN_ITERS or iterations > SCRAM_MAX_ITERS:
             raise ScramError(
-                f'{iterations}: exceeds maximum of {SCRAM_MAX_ITERS}',
+                f'{iterations}: iteration count outside [{SCRAM_MIN_ITERS}, {SCRAM_MAX_ITERS}]',
                 SCRAM_E_INVALID_REQUEST
             )
 
@@ -104,6 +106,19 @@ class ServerFirstMessage:
             salt_bytes = b64decode(salt_b64)
         except Exception as e:
             raise ValueError(f'Invalid base64 encoding in server first message: {e}')
+
+        # The C parser accepts only a 32- or 64-byte nonce and caps the salt length; match both
+        # (scram_parse_nonce / scram_parse_b64_datum in scram_attr_parse.c).
+        if len(nonce_bytes) not in (SCRAM_NONCE_SIZE, SCRAM_NONCE_SIZE * 2):
+            raise ScramError(
+                f'{len(nonce_bytes)}: unexpected nonce size',
+                SCRAM_E_INVALID_REQUEST
+            )
+        if len(salt_bytes) > SCRAM_MAX_SALT_SZ:
+            raise ScramError(
+                f'{len(salt_bytes)}: salt exceeds maximum of {SCRAM_MAX_SALT_SZ}',
+                SCRAM_E_INVALID_REQUEST
+            )
 
         self.__nonce = CryptoDatum(nonce_bytes)
         self.__salt = CryptoDatum(salt_bytes)
