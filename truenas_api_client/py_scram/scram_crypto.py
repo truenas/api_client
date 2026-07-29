@@ -25,6 +25,8 @@ __all__ = [
     'SCRAM_MIN_ITERS',
     'SCRAM_DEFAULT_ITERS',
     'SCRAM_NONCE_SIZE',
+    'SCRAM_MAX_SALT_SZ',
+    'SHA512_DIGEST_SIZE',
 ]
 
 
@@ -33,6 +35,8 @@ SCRAM_MAX_ITERS = 5000000
 SCRAM_MIN_ITERS = 50000
 SCRAM_DEFAULT_ITERS = 500000
 SCRAM_NONCE_SIZE = 32
+SCRAM_MAX_SALT_SZ = 1024  # salt length cap enforced by the C parser (scram_attr_parse.c)
+SHA512_DIGEST_SIZE = 64   # SHA-512 output length; SCRAM proofs/signatures/keys are this size
 
 
 class CryptoDatum(bytes):

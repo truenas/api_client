@@ -39,6 +39,12 @@ class ClientFirstMessage:
         if not isinstance(username, str):
             raise TypeError('Username must be string')
 
+        # SCRAM messages are comma-separated and use '=' for the "=2C"/"=3D" username escapes
+        # (RFC 5802 5.1) that this library does not emit. Reject both characters up front,
+        # matching the C library's scram_create_client_first_message().
+        if ',' in username or '=' in username:
+            raise ValueError("username must not contain ',' or '='")
+
         if not isinstance(api_key_id, int):
             raise TypeError('API key ID must be an integer')
 
