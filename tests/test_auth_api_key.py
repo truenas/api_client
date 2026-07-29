@@ -304,7 +304,7 @@ class TestGetKeyMaterialErrors(unittest.TestCase):
     """Test error handling in get_key_material."""
 
     def test_invalid_json_and_ini(self):
-        """Test that invalid JSON and INI raises descriptive error."""
+        """Invalid JSON/INI raises a clear error naming the accepted formats."""
         invalid_data = "this is {not valid json or ini"
 
         with self.assertRaises(ValueError) as ctx:
@@ -312,8 +312,20 @@ class TestGetKeyMaterialErrors(unittest.TestCase):
 
         error_msg = str(ctx.exception)
         self.assertIn("Key material must be either", error_msg)
-        self.assertIn("JSON error:", error_msg)
-        self.assertIn("INI error:", error_msg)
+        # A clean generic message, not ConfigParser's raw error.
+        self.assertNotIn(invalid_data, error_msg)
+
+    def test_malformed_key_material_gives_clean_error(self):
+        """A malformed key (not a raw key or JSON) gets the generic error with no chained cause."""
+        malformed = "1-not+a/valid=key=="  # fails raw pattern, not JSON, not INI
+
+        with self.assertRaises(ValueError) as ctx:
+            get_key_material(malformed)
+
+        self.assertIn("Key material must be either", str(ctx.exception))
+        self.assertNotIn(malformed, str(ctx.exception))
+        # Generic message replaces ConfigParser's, and its chain is suppressed.
+        self.assertIsNone(ctx.exception.__cause__)
 
     def test_empty_string_with_no_dash(self):
         """Test empty string without dash raises error."""
