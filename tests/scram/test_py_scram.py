@@ -189,7 +189,8 @@ class TestServerFirstMessage(unittest.TestCase):
 
     def test_from_rfc_string(self):
         """Test parsing ServerFirstMessage from RFC string."""
-        rfc_string = "r=Y2xpZW50bm9uY2U=,s=c2FsdA==,i=50000"
+        nonce = b64encode(b'\x22' * 64).decode()  # combined client+server nonce is 64 bytes
+        rfc_string = f"r={nonce},s=c2FsdA==,i=50000"
         msg = py_scram.ServerFirstMessage(rfc_string=rfc_string)
 
         self.assertEqual(str(msg), rfc_string)
@@ -311,7 +312,9 @@ class TestClientFinalMessage(unittest.TestCase):
 
     def test_from_rfc_string(self):
         """Test parsing ClientFinalMessage from RFC string."""
-        rfc_string = "c=biws,r=Y2xpZW50bm9uY2U=,p=cHJvb2Y="
+        nonce = b64encode(b'\x22' * 64).decode()
+        proof = b64encode(b'\x33' * 64).decode()
+        rfc_string = f"c=biws,r={nonce},p={proof}"
         client_final = py_scram.ClientFinalMessage(rfc_string=rfc_string)
 
         self.assertEqual(str(client_final), rfc_string)
@@ -492,6 +495,70 @@ class TestVerificationFunctions(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.code, py_scram.SCRAM_E_AUTH_FAILED)
+
+
+class TestCLibraryCongruence(unittest.TestCase):
+    """Behaviors that must match the truenas_scram C reference (src/scram)."""
+
+    def setUp(self):
+        self.salt = py_scram.CryptoDatum(b"test_salt_16bytes")
+        self.client_first = py_scram.ClientFirstMessage(username="testuser")
+        self.server_first = py_scram.ServerFirstMessage(
+            client_first=self.client_first, salt=self.salt, iterations=100000)
+        salted = py_scram.scram_hi(py_scram.CryptoDatum(b"pw"), self.salt, 100000)
+        self.client_key = py_scram.scram_create_client_key(salted)
+        self.stored_key = py_scram.scram_create_stored_key(self.client_key)
+
+    def test_username_with_comma_or_equals_rejected(self):
+        """The C rejects ',' and '=' in usernames (scram_create_client_first_message)."""
+        for bad in ("user,name", "user=name"):
+            with self.subTest(username=bad):
+                with self.assertRaises(ValueError):
+                    py_scram.ClientFirstMessage(username=bad)
+
+    def test_channel_binding_c_value(self):
+        """c= is base64(gs2-header + ',,' + cbind-data), as the C serializer builds it."""
+        cb = py_scram.CryptoDatum(b'\xaa' * 32)
+        cfirst = py_scram.ClientFirstMessage(
+            username="testuser", channel_binding_type="tls-server-end-point")
+        sfirst = py_scram.ServerFirstMessage(
+            client_first=cfirst, salt=self.salt, iterations=100000)
+        cfinal = py_scram.ClientFinalMessage(
+            client_first=cfirst, server_first=sfirst,
+            client_key=self.client_key, stored_key=self.stored_key, channel_binding=cb)
+        c_b64 = str(cfinal).split(',', 1)[0][len('c='):]
+        self.assertEqual(b64decode(c_b64), b'p=tls-server-end-point,,' + b'\xaa' * 32)
+
+    def test_p_flag_requires_channel_binding(self):
+        """gs2 'p' flag without binding data is rejected (check_gs2_cb_consistency)."""
+        cfirst = py_scram.ClientFirstMessage(
+            username="testuser", channel_binding_type="tls-server-end-point")
+        sfirst = py_scram.ServerFirstMessage(
+            client_first=cfirst, salt=self.salt, iterations=100000)
+        with self.assertRaises(ValueError):
+            py_scram.ClientFinalMessage(
+                client_first=cfirst, server_first=sfirst,
+                client_key=self.client_key, stored_key=self.stored_key)
+
+    def test_channel_binding_requires_p_flag(self):
+        """Binding data with a non-'p' flag is rejected (check_gs2_cb_consistency)."""
+        with self.assertRaises(ValueError):
+            py_scram.ClientFinalMessage(
+                client_first=self.client_first, server_first=self.server_first,
+                client_key=self.client_key, stored_key=self.stored_key,
+                channel_binding=py_scram.CryptoDatum(b'\xaa' * 32))
+
+    def test_server_first_rejects_wrong_nonce_size(self):
+        """The C parser accepts only 32- or 64-byte nonces (scram_parse_nonce)."""
+        short = b64encode(b'\x22' * 11).decode()
+        with self.assertRaises(py_scram.ScramError):
+            py_scram.ServerFirstMessage(rfc_string=f"r={short},s=c2FsdA==,i=50000")
+
+    def test_server_first_rejects_low_iterations(self):
+        """The C parser enforces the minimum iteration count (scram_parse_iteration_cnt)."""
+        nonce = b64encode(b'\x22' * 64).decode()
+        with self.assertRaises(py_scram.ScramError):
+            py_scram.ServerFirstMessage(rfc_string=f"r={nonce},s=c2FsdA==,i=100")
 
 
 class TestCryptoFunctions(unittest.TestCase):
