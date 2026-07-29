@@ -10,7 +10,7 @@ from threading import Event, Lock
 
 from truenas_api_client import JSONRPCClient, Job
 from truenas_api_client.legacy import LegacyClient, Job as LegacyJob
-from truenas_api_client.exc import ClientException
+from truenas_api_client.exc import ClientException, ValidationErrors
 
 
 def _bare(cls, **attrs):
@@ -50,6 +50,27 @@ class TestAbortedJobResult(unittest.TestCase):
         client._jobs['j1'].update(state='ABORTED', exc_info=None, exception=None, error=None)
         client._jobs['j1']['__ready'].set()
         with self.assertRaises(ClientException):
+            job.result()
+
+    def test_current(self):
+        self._check(_current(), Job)
+
+    def test_legacy(self):
+        self._check(_legacy(), LegacyJob)
+
+
+class TestValidationJobResult(unittest.TestCase):
+    """A validation-failed job surfaces as ValidationErrors, not a generic ClientException."""
+
+    def _check(self, client, job_cls):
+        job = job_cls(client, 'j1')
+        client._jobs['j1'].update(
+            state='FAILED',
+            exc_info={'type': 'VALIDATION', 'repr': 'ValidationErrors',
+                      'extra': [('field', 'is required', errno.EINVAL)]},
+            exception='validation failed', error='validation failed')
+        client._jobs['j1']['__ready'].set()
+        with self.assertRaises(ValidationErrors):
             job.result()
 
     def test_current(self):
