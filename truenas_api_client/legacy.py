@@ -181,11 +181,9 @@ class Job:
             return job['result']
 
         exc_info = job.get('exc_info')
-        if exc_info and exc_info['type'] == 'VALIDATION':
-            raise ValidationErrors(exc_info['extra'] or [])
         if exc_info:
-            # middlewared sets exc_info, exception and error together (job.py set_exception), so
-            # when exc_info is present these are non-None strings.
+            if exc_info['type'] == 'VALIDATION':
+                raise ValidationErrors(exc_info['extra'] or [])
             raise ClientException(
                 job['error'],
                 trace={
