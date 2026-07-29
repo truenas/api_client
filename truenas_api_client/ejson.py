@@ -80,12 +80,17 @@ def object_hook(obj: dict):
         if obj_len == 1:
             error_key = list(obj.keys())[0]
             if '$date' in obj:
+                # floor-divide for whole seconds; the remainder is added as milliseconds.
+                # (fromtimestamp already accounts for the fraction, so true division would
+                # count the sub-second part twice.)
                 return (
-                    datetime.fromtimestamp(obj['$date'] / 1000, tz=timezone.utc) +
+                    datetime.fromtimestamp(obj['$date'] // 1000, tz=timezone.utc) +
                     timedelta(milliseconds=obj['$date'] % 1000)
                 )
             if '$time' in obj:
-                return time(*[int(i) for i in obj['$time'].split(':')[:4]])  # type: ignore
+                # inverse of the encoder's str(time), which is ISO format and may carry a
+                # fractional-second (.ffffff) or UTC offset that the old int-split couldn't parse.
+                return time.fromisoformat(obj['$time'])
             if '$set' in obj:
                 return set(obj['$set'])
             if '$ipv4_interface' in obj:
