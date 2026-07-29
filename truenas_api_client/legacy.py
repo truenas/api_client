@@ -45,6 +45,14 @@ class WSClient:
             self.socket.connect(self.url.removeprefix(unix_socket_prefix))
             app_url = "ws://localhost/websocket"  # Adviced by official docs to use dummy hostname
         elif self.reserved_ports:
+            # reserved_ports uses a raw socket and never negotiates TLS, so it only supports a
+            # plaintext ws:// URI. Require that scheme explicitly rather than, for example,
+            # connecting a wss:// URI in cleartext.
+            scheme = urllib.parse.urlparse(self.url).scheme
+            if scheme != 'ws':
+                raise ClientException(
+                    f'reserved_ports connections require a ws:// URI, got {scheme!r}'
+                )
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.settimeout(10)
             self._bind_to_reserved_port()
