@@ -654,6 +654,8 @@ class JSONRPCClient:
         elif code == JSONRPCError.TRUENAS_CALL_ERROR:
             data = error['data']
             error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
+        elif code == JSONRPCError.METHOD_NOT_FOUND:
+            error = ClientException(error.get('message') or code.name, ErrnoMixin.ENOMETHOD)
         else:
             error = ClientException(error.get('message') or code.name)
 
