@@ -8,13 +8,13 @@ Build-Depends: debhelper-compat (= 12),
                python3-all,
                python3-argparse-manpage,
                python3-setuptools,
-               python3-websocket (>= 1.3.2)
+               python3-websockets (>= 17.1)
 Standards-Version: 4.4.0
 Homepage: https://github.com/truenas/api_client
 
 Package: python3-truenas-api-client
 Architecture: all
-Depends: python3-websocket
+Depends: python3-websockets
          ${misc:Depends},
          ${python3:Depends}
 Description: TrueNAS API client

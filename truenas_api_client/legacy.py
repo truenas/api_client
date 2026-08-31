@@ -5,144 +5,19 @@ from collections import defaultdict
 import errno
 import logging
 import pickle
-import random
-import socket
-import ssl
 from threading import Event, Lock, Thread
-import time
-import urllib.parse
 import uuid
 
-from websocket import WebSocketApp
-from websocket._abnf import STATUS_NORMAL
-from websocket._exceptions import WebSocketConnectionClosedException
-from websocket._http import connect, proxy_info
-from websocket._socket import sock_opt
+from websockets.exceptions import ConnectionClosed
 
 from . import ejson as json
 from .auth_api_key import APIKeyAuthMech, api_key_authenticate
 from .config import CALL_TIMEOUT
-from .exc import ReserveFDException, ClientException, ValidationErrors, CallTimeout
-from .utils import MIDDLEWARE_RUN_DIR, undefined, UndefinedType, set_socket_options
+from .exc import ClientException, ValidationErrors, CallTimeout
+from .transport import WSClient
+from .utils import MIDDLEWARE_RUN_DIR, undefined, UndefinedType
 
 logger = logging.getLogger(__name__)
-
-
-class WSClient:
-    def __init__(self, url, *, client, reserved_ports=False, verify_ssl=True):
-        self.url = url
-        self.client = client
-        self.reserved_ports = reserved_ports
-        self.verify_ssl = verify_ssl
-
-        self.socket = None
-        self.app = None
-
-    def connect(self):
-        unix_socket_prefix = "ws+unix://"
-        if self.url.startswith(unix_socket_prefix):
-            self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.socket.connect(self.url.removeprefix(unix_socket_prefix))
-            app_url = "ws://localhost/websocket"  # Adviced by official docs to use dummy hostname
-        elif self.reserved_ports:
-            # reserved_ports uses a raw socket and never negotiates TLS, so it only supports a
-            # plaintext ws:// URI. Require that scheme explicitly rather than, for example,
-            # connecting a wss:// URI in cleartext.
-            scheme = urllib.parse.urlparse(self.url).scheme
-            if scheme != 'ws':
-                raise ClientException(
-                    f'reserved_ports connections require a ws:// URI, got {scheme!r}'
-                )
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(10)
-            self._bind_to_reserved_port()
-            try:
-                self.socket.connect((urllib.parse.urlparse(self.url).hostname,
-                                     urllib.parse.urlparse(self.url).port or 80))
-            except Exception:
-                self.socket.close()
-                raise
-            app_url = "ws://localhost/websocket"  # Adviced by official docs to use dummy hostname
-        else:
-            sockopt = sock_opt(None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE})
-            sockopt.timeout = 10
-            self.socket = connect(self.url, sockopt, proxy_info(), None)[0]
-            app_url = self.url
-
-        self.app = WebSocketApp(
-            app_url,
-            socket=self.socket,
-            on_open=self._on_open,
-            on_message=self._on_message,
-            on_error=self._on_error,
-            on_close=self._on_close,
-        )
-        Thread(daemon=True, target=self.app.run_forever).start()
-
-    def send(self, data):
-        return self.app.send(data)
-
-    def close(self):
-        self.app.close()
-        self.client.on_close(STATUS_NORMAL)
-
-    def _bind_to_reserved_port(self):
-        # linux doesn't have a mechanism to allow the kernel to dynamically
-        # assign ports in the "privileged" range (i.e. 600 - 1024) so we
-        # loop through and call bind() on a privileged port explicitly since
-        # middlewared runs as root.
-
-        # generate 5 random numbers in the `port_low`, `port_high` range
-        # so that we guarantee we use a different port from the last
-        # iteration in the for loop
-        port_low = 600
-        port_high = 1024
-
-        ports_to_try = random.sample(range(port_low, port_high), 5)
-
-        for port in ports_to_try:
-            try:
-                self.socket.bind(('', port))
-                return
-            except OSError:
-                time.sleep(0.1)
-                continue
-
-        raise ReserveFDException()
-
-    def _on_open(self, app):
-        # TCP keepalive settings don't apply to local unix sockets
-        if 'ws+unix' not in self.url:
-            set_socket_options(self.socket)
-
-        # if we're able to connect put socket in blocking mode
-        # until all operations complete or error is raised
-        self.socket.settimeout(None)
-
-        self.client.on_open()
-
-    def get_peer_cert_der(self) -> bytes | None:
-        """Return the server's TLS certificate in DER form, or `None` for a non-TLS
-        transport. Used to compute the RFC 5929 tls-server-end-point SCRAM channel
-        binding (retrievable even when `verify_ssl` is `False`).
-
-        Precondition: the TLS handshake must be complete (true once `connect()` has run,
-        before any login); before that `getpeercert()` yields an empty value that callers
-        treat as "no certificate".
-        """
-        if isinstance(self.socket, ssl.SSLSocket):
-            return self.socket.getpeercert(binary_form=True)
-
-        return None
-
-    def _on_message(self, app, data):
-        self.client._recv(json.loads(data))
-
-    def _on_error(self, app, e):
-        logger.warning("Websocket client error: %r", e)
-
-    def _on_close(self, app, code, reason):
-        self.client.on_close(code, reason)
 
 
 class Call:
@@ -236,6 +111,7 @@ class LegacyClient:
             client=self,
             reserved_ports=reserved_ports,
             verify_ssl=verify_ssl,
+            unix_ws_path='/websocket',
         )
         self._ws.connect()
         self._connected.wait(10)
@@ -255,7 +131,7 @@ class LegacyClient:
     def _send(self, data):
         try:
             self._ws.send(json.dumps(data))
-        except (AttributeError, WebSocketConnectionClosedException):
+        except (AttributeError, ConnectionClosed):
             # happens when other node on HA is rebooted, for example, and there are
             # running tasks in the event loop (i.e. failover.call_remote failover.get_disks_local)
             raise ClientException('Unexpected closure of remote connection', errno.ECONNABORTED)

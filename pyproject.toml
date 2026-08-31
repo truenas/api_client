@@ -8,7 +8,7 @@ description = "TrueNAS API client"
 requires-python = ">=3.10"
 license = {text = "LGPLv3"}
 dynamic = ["version"]
-dependencies = ["websocket-client"]
+dependencies = ["websockets >= 17.1"]
 
 [project.optional-dependencies]
 # Test-only: python-cryptography is used purely as an independent oracle in the

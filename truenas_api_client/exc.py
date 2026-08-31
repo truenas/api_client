@@ -85,6 +85,26 @@ class ClientException(ErrnoMixin, Exception):
         return self.error
 
 
+class ClientHandshakeError(ClientException):
+    """The server rejected the WebSocket handshake with an HTTP error status.
+
+    Notably raised with `status_code=404` when connecting to `/api/current` on a
+    TrueNAS 24.10 or earlier server, which only serves the legacy `/websocket`
+    endpoint. Consumers can catch this to fall back to a `LegacyClient`.
+    """
+
+    def __init__(self, error: str, status_code: int):
+        """Initialize `ClientHandshakeError`.
+
+        Args:
+            error: An error message offering a reason for the exception.
+            status_code: The HTTP status code the server responded with.
+
+        """
+        self.status_code = status_code
+        super().__init__(error)
+
+
 class ValidationErrors(ClientException):
     """A raisable collection of `ErrorExtra`s that indicates a validation error occurred on the server."""
 

@@ -37,36 +37,26 @@ import errno
 import logging
 import pickle
 import pprint
-import random
-import socket
-import struct
+import ssl
 import sys
 from threading import Event, Lock, Thread
-import time
 from typing import Any, Literal, Protocol, TypeAlias, TypedDict
-import urllib.parse
 import uuid
 
-import ssl
-from websocket import WebSocketApp
-from websocket._abnf import ABNF, STATUS_NORMAL
-from websocket._exceptions import WebSocketException, WebSocketConnectionClosedException
-from websocket._http import connect, proxy_info
-from websocket._socket import sock_opt
+from websockets.exceptions import ConnectionClosed
 
 from . import ejson as json
 from .auth_api_key import api_key_authenticate, APIKeyAuthMech
 from .config import CALL_TIMEOUT
-from .exc import ReserveFDException, ClientException, ErrnoMixin, ValidationErrors, CallTimeout  # noqa
+from .exc import (  # noqa
+    ReserveFDException, ClientException, ClientHandshakeError, ErrnoMixin, ValidationErrors, CallTimeout,
+)
 from .legacy import LegacyClient
 from .jsonrpc import CollectionUpdateParams, ErrorObj, JobFields, JSONRPCError, JSONRPCMessage, TruenasError
-from .utils import MIDDLEWARE_RUN_DIR, ProgressBar, undefined, UndefinedType, set_socket_options
+from .transport import UNIX_SOCKET_PREFIX, WSClient  # noqa
+from .utils import MIDDLEWARE_RUN_DIR, ProgressBar, undefined, UndefinedType
 
 logger = logging.getLogger(__name__)
-
-
-UNIX_SOCKET_PREFIX = "ws+unix://"
-DUMMY_HOSTNAME = "ws://localhost/api/current"  # Advised by official docs to use dummy hostname
 
 
 class Client:
@@ -117,198 +107,6 @@ class Client:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         return self.__client.__exit__(exc_type, exc_val, exc_tb)
-
-
-class WSClient:
-    """A supporter class for `JSONRPCClient` that manages the `WebSocket` connection to the server.
-
-    The object used by `JSONRPCClient` to send and receive data.
-
-    """
-    def __init__(self, url: str, *, client: 'JSONRPCClient', reserved_ports: bool = False, verify_ssl: bool = True):
-        """Initialize a `WSClient`.
-
-        Args:
-            url: The websocket to connect to. `ws://` or `wss://` for secure connection.
-            client: Reference to the `JSONRPCClient` instance that uses this object.
-            reserved_ports: `True` if the `socket` should bind to a reserved port, i.e. 600-1024.
-            verify_ssl: `True` if SSL certificate should be verified before connecting.
-
-        """
-        self.url = url
-        self.client = client
-        self.reserved_ports = reserved_ports
-        self.verify_ssl = verify_ssl
-
-        self.socket: socket.socket
-        self.app: WebSocketApp
-
-    def connect(self):
-        """Connect a `socket` and start a `WebSocketApp` in a daemon `Thread`.
-
-        Raises:
-            Exception: The `socket` failed to connect.
-
-        """
-        if self.url.startswith(UNIX_SOCKET_PREFIX):
-            self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.socket.connect(self.url.removeprefix(UNIX_SOCKET_PREFIX))
-            app_url = DUMMY_HOSTNAME
-        elif self.reserved_ports:
-            # reserved_ports uses a raw socket and never negotiates TLS, so it only supports a
-            # plaintext ws:// URI. Require that scheme explicitly rather than, for example,
-            # connecting a wss:// URI in cleartext.
-            scheme = urllib.parse.urlparse(self.url).scheme
-            if scheme != 'ws':
-                raise ClientException(
-                    f'reserved_ports connections require a ws:// URI, got {scheme!r}'
-                )
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(10)
-            self._bind_to_reserved_port()
-            try:
-                self.socket.connect((urllib.parse.urlparse(self.url).hostname,
-                                     urllib.parse.urlparse(self.url).port or 80))
-            except Exception:
-                self.socket.close()
-                raise
-            app_url = DUMMY_HOSTNAME
-        else:
-            sockopt = sock_opt(None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE})
-            sockopt.timeout = 10
-            self.socket = connect(self.url, sockopt, proxy_info(), None)[0]
-            app_url = self.url
-
-        self.app = WebSocketApp(
-            app_url,
-            socket=self.socket,
-            on_open=self._on_open,
-            on_message=self._on_message,
-            on_error=self._on_error,
-            on_close=self._on_close,
-        )
-        Thread(daemon=True, target=self.app.run_forever).start()
-
-    def get_peer_cert_der(self) -> bytes | None:
-        """Return the server's TLS certificate in DER form, or `None` for a non-TLS
-        transport (unix socket, plain `ws://`, or reserved-port connection).
-
-        Used to compute the RFC 5929 tls-server-end-point SCRAM channel binding. The
-        certificate is retrievable even when `verify_ssl` is `False`.
-
-        Precondition: the TLS handshake must be complete -- true for the SCRAM login
-        flow, which runs after `connect()`. Before the handshake `getpeercert()` returns
-        an empty value, which callers treat as "no certificate" (a falsy result).
-        """
-        sock = getattr(self, 'socket', None)
-        if isinstance(sock, ssl.SSLSocket):
-            return sock.getpeercert(binary_form=True)
-
-        return None
-
-    def send(self, data: bytes | str):
-        """Send data to the server by calling `WebSocketApp.send()`.
-
-        Args:
-            data: The serialized JSON-RPC v2.0-formatted request to send.
-
-        """
-        return self.app.send(data)
-
-    def close(self):
-        """Cleanly close the `WebSocket` connection to the server."""
-        try:
-            self.app.close()
-        except AttributeError:
-            # workaround for github.com/websocket-client/websocket-client/issues/1056
-            pass
-        self.client.on_close(STATUS_NORMAL)
-
-    def _bind_to_reserved_port(self):
-        """Bind to a random port in the 600-1024 range.
-
-        Raises:
-            ReserveFDException: Five failed attempts with different ports.
-
-        """
-        # linux doesn't have a mechanism to allow the kernel to dynamically
-        # assign ports in the "privileged" range (i.e. 600 - 1024) so we
-        # loop through and call bind() on a privileged port explicitly since
-        # middlewared runs as root.
-
-        # generate 5 random numbers in the `port_low`, `port_high` range
-        # so that we guarantee we use a different port from the last
-        # iteration in the for loop
-        port_low = 600
-        port_high = 1024
-
-        ports_to_try = random.sample(range(port_low, port_high), 5)
-
-        for port in ports_to_try:
-            try:
-                self.socket.bind(('', port))
-                return
-            except OSError:
-                time.sleep(0.1)
-                continue
-
-        raise ReserveFDException()
-
-    def _on_open(self, app):
-        """Callback passed to the `WebSocketApp` to execute when `run_forever` is called.
-
-        Configure the `socket` and call `client.on_open()`.
-
-        """
-        # TCP keepalive settings don't apply to local unix sockets
-        if UNIX_SOCKET_PREFIX not in self.url:
-            set_socket_options(self.socket)
-
-        # if we're able to connect put socket in blocking mode
-        # until all operations complete or error is raised
-        self.socket.settimeout(None)
-
-        self.client.on_open()
-
-    def _on_message(self, app, data):
-        """Callback passed to the `WebSocketApp` to execute when data is received.
-
-        Pass the received data to the `JSONRPCClient`.
-
-        """
-        self.client._recv(json.loads(data))
-
-    def _on_error(self, app, e):
-        """Callback passed to the `WebSocketApp` to execute when an error occurs.
-
-        Handle ABNF frames and other errors.
-
-        """
-        code = None
-        reason = 'UNKNOWN'
-        if isinstance(e, ABNF):
-            # Always try to extract whatever information is available from the ABNF object
-            try:
-                # If there's data, try to extract code and reason (typically for close frames)
-                if e.data and len(e.data) >= 2:
-                    code = struct.unpack('!H', e.data[:2])[0]
-                reason = e.data[2:].decode('utf-8', errors='ignore')
-            except Exception:
-                pass
-
-            # Always call on_close with whatever information we could extract
-            self.client.on_close(code, reason)
-            return
-
-        self.client._ws_connection_error = e
-
-    def _on_close(self, app, code, reason):
-        """Callback passed to the `WebSocketApp` to execute when it closes.
-
-        Close the `JSONRPCClient`.
-
-        """
-        self.client.on_close(code, reason)
 
 
 class Call:
@@ -489,7 +287,6 @@ class JSONRPCClient:
         self._closed = Event()
         self._connected = Event()
         self._connection_error: str | None = None
-        self._ws_connection_error: WebSocketException
         self._ws = WSClient(
             uri,
             client=self,
@@ -500,9 +297,6 @@ class JSONRPCClient:
         self._connected.wait(30)
         if not self._connected.is_set():
             raise ClientException('Failed connection handshake')
-        if hasattr(self, '_ws_connection_error'):
-            if isinstance(self._ws_connection_error, WebSocketException):
-                raise self._ws_connection_error
         if self._connection_error is not None:
             raise ClientException(self._connection_error)
 
@@ -524,7 +318,7 @@ class JSONRPCClient:
         """
         try:
             self._ws.send(json.dumps(data))
-        except (AttributeError, WebSocketConnectionClosedException):
+        except (AttributeError, ConnectionClosed):
             # happens when other node on HA is rebooted, for example, and there are
             # running tasks in the event loop (i.e. failover.call_remote failover.get_disks_local)
             raise ClientException('Unexpected closure of remote connection', errno.ECONNABORTED)
@@ -691,13 +485,14 @@ class JSONRPCClient:
             "py_exceptions": self._py_exceptions,
         }, background=True)
 
-    def on_close(self, code: int, reason: str | None = None):
-        """Close this `JSONRPCClient` in response to the `WebSocketApp` closing.
+    def on_close(self, code: int | None, reason: str | None = None):
+        """Close this `JSONRPCClient` in response to the WebSocket connection closing.
 
         End all unanswered calls and unreturned jobs with an error.
 
         Args:
-            code: One of several closing frame status codes defined in `websocket._abnf`.
+            code: The RFC 6455 close status code, or `None` if the connection dropped
+                without a close frame.
             reason: A message to accompany the closing code and provide more information.
 
         """
