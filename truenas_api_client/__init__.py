@@ -1325,8 +1325,8 @@ def main():
                             channel_binding=not args.no_channel_binding,
                         )
                 except Exception as e:
-                    print("Failed to login: ", e)
-                    sys.exit(0)
+                    print("Failed to login: ", e, file=sys.stderr)
+                    sys.exit(1)
                 try:
                     kwargs = {}
                     if args.timeout:
