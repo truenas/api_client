@@ -190,7 +190,11 @@ class WSClient:
 
     def close(self):
         """Cleanly close the `WebSocket` connection to the server."""
-        self.app.close()
+        try:
+            self.app.close()
+        except AttributeError:
+            # workaround for github.com/websocket-client/websocket-client/issues/1056
+            pass
         self.client.on_close(STATUS_NORMAL)
 
     def _bind_to_reserved_port(self):
