@@ -16,6 +16,7 @@ Example::
 
 """
 import calendar
+import dataclasses
 from datetime import date, datetime, time, timedelta, timezone
 from ipaddress import IPv4Interface, IPv6Interface
 import json
@@ -42,11 +43,21 @@ class JSONEncoder(json.JSONEncoder):
     | datetime.datetime | {"$date": number[Total milliseconds since EPOCH]} |
     | datetime.time     | {"$time": string[HH:MM:SS]}                       |
     | set               | {"$set": array[items...]}                         |
+    | IPv4Interface     | {"$ipv4_interface": "192.168.0.1/32"}             |
+    | IPv6Interface     | {"$ipv6_interface": "::/128"}                     |
+    | dataclass         | {"key": "value", ...}                             |
+    | Pydantic model    | {"key": "value", ...}                             |
+    | an object from    | {"repr": "<object at 0x...>"}                     |
+    |`repr_allowlist`   |                                                   |
 
     Note: When serializing Python sets, the order that the elements appear in
     the JSON array is undefined.
-
     """
+
+    def __init__(self, *args, repr_allowlist=None, **kwargs):
+        self.repr_allowlist = repr_allowlist
+        super().__init__(*args, **kwargs)
+
     def default(self, obj):
         if type(obj) is date:
             return {'$type': 'date', '$value': obj.isoformat()}
@@ -65,6 +76,11 @@ class JSONEncoder(json.JSONEncoder):
             return {'$ipv6_interface': str(obj)}
         elif BaseModel is not None and isinstance(obj, BaseModel):
             return obj.model_dump(warnings=False, by_alias=True)
+        elif dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+            return dataclasses.asdict(obj)
+        elif self.repr_allowlist and isinstance(obj, self.repr_allowlist):
+            return {'$repr': repr(obj)}
+
         return super(JSONEncoder, self).default(obj)
 
 
@@ -106,23 +122,26 @@ def object_hook(obj: dict):
     return obj
 
 
-def dump(obj, fp, **kwargs):
+def dump(obj, fp, repr_allowlist=None, **kwargs):
     """Wraps `json.dump()` and uses the custom `JSONEncoder`.
 
-    Can serialize `date`, `time`, `datetime`, and `set` objects
-    to a file-like object.
+    Can serialize `date`, `time`, `datetime`, `set`, `IPv4Interface`, `IPv6Interface` objects, dataclasses and
+    Pydantic models to a file-like object.
 
+    `repr_allowlist` is a supplementary list of classes which will be serialized to their `repr()`.
     """
-    return json.dump(obj, fp, cls=JSONEncoder, **kwargs)
+    return json.dump(obj, fp, cls=JSONEncoder, repr_allowlist=repr_allowlist, **kwargs)
 
 
-def dumps(obj, **kwargs) -> str:
+def dumps(obj, repr_allowlist=None, **kwargs) -> str:
     """Wraps `json.dumps()` and uses the custom `JSONEncoder`.
 
-    Can serialize `date`, `time`, `datetime`, and `set` objects.
+    Can serialize `date`, `time`, `datetime`, `set`, `IPv4Interface`, `IPv6Interface` objects, dataclasses and
+    Pydantic models to a file-like object.
 
+    `repr_allowlist` is a supplementary list of classes which will be serialized to their `repr()`.
     """
-    return json.dumps(obj, cls=JSONEncoder, **kwargs)
+    return json.dumps(obj, cls=JSONEncoder, repr_allowlist=repr_allowlist, **kwargs)
 
 
 def loads(obj: str | bytes | bytearray, **kwargs):
