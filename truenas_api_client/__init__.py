@@ -325,6 +325,10 @@ class Call:
         self.method = method
         self.params = params
         self.returned = Event()
+        self.job_id: Any = None
+        """Set when a `core.get_jobs` event binds this call to a job. Stays
+        `None` for a method that is not a job, and for a transient job, which
+        emits no such events."""
         self.result: Any = None
         self.error: ClientException | None = None
         self.py_exception: BaseException | None = None
@@ -558,6 +562,7 @@ class JSONRPCClient:
                             if params['collection'] == 'core.get_jobs' and params['msg'] in ['added', 'changed']:
                                 for message_id in params['fields']['message_ids']:
                                     if (call := self._calls.get(message_id)) is not None:
+                                        call.job_id = params['id']
                                         call.result = params['id']
                                         call.returned.set()
                                         self._unregister_call(call)
@@ -891,11 +896,14 @@ class JSONRPCClient:
 
         Returns:
             Job: If `job='RETURN'`, return the `Job` object.
-            Any: If `job=True`, return the job's result. Otherwise, return the call's result.
+            Any: If `job=True`, return the job's result. Otherwise, return the call's result. A method that did
+                not run as a trackable job, because it is not a job or because it is transient, has already
+                returned its own result, which is returned as-is.
 
         Raises:
             CallTimeout: The call took longer than `timeout` seconds to return.
-            ClientException: The call ended in error and `py_exception` was not enabled for `c`.
+            ClientException: The call ended in error and `py_exception` was not enabled for `c`, or `job='RETURN'`
+                was requested for a method that did not run as a trackable job.
             BaseException: The call ended in error and `py_exception` was enabled for `c`.
 
         """
@@ -916,7 +924,29 @@ class JSONRPCClient:
                     raise c.error
 
             if job:
-                jobobj = Job(self, c.result, callback=callback)
+                if self._new_style_jobs:
+                    if c.job_id is None:
+                        # No `core.get_jobs` event ever named this call, so
+                        # there is no job to track: either the method is not a
+                        # job, or it is a transient job, which emits no such
+                        # events. Either way the call has already returned the
+                        # method's own result, and building a Job here would
+                        # wait forever on events for an id the server never
+                        # issued.
+                        if job == 'RETURN':
+                            raise ClientException(
+                                f'{c.method!r} did not run as a trackable job, so there is no job to return.'
+                            )
+
+                        return c.result
+
+                    job_id = c.job_id
+                else:
+                    # Legacy jobs: the server answers a job method with the job
+                    # id as the call's plain result.
+                    job_id = c.result
+
+                jobobj = Job(self, job_id, callback=callback)
                 if job == 'RETURN':
                     return jobobj
                 return jobobj.result()
