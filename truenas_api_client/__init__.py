@@ -398,6 +398,7 @@ class Job:
                 raise ValidationErrors(exc_info['extra'] or [])
             raise ClientException(
                 job['error'],
+                errno=exc_info.get('errno'),
                 trace={
                     'class': exc_info['type'],
                     'frames': [],
