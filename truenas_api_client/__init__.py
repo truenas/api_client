@@ -326,6 +326,7 @@ class Call:
         self.params = params
         self.returned = Event()
         self.result: Any = None
+        self.job_id: int | None = None
         self.error: ClientException | None = None
         self.py_exception: BaseException | None = None
 
@@ -559,6 +560,7 @@ class JSONRPCClient:
                                 for message_id in params['fields']['message_ids']:
                                     if (call := self._calls.get(message_id)) is not None:
                                         call.result = params['id']
+                                        call.job_id = params['id']
                                         call.returned.set()
                                         self._unregister_call(call)
                         if self._event_callbacks:
@@ -916,9 +918,14 @@ class JSONRPCClient:
                     raise c.error
 
             if job:
+                if self._new_style_jobs:
+                    if c.job_id is None:
+                        raise ClientException("The method is not a job.")
+
                 jobobj = Job(self, c.result, callback=callback)
                 if job == 'RETURN':
                     return jobobj
+
                 return jobobj.result()
 
             return c.result
