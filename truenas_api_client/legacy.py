@@ -146,10 +146,11 @@ class WSClient:
 
 
 class Call:
-    def __init__(self, method, params):
+    def __init__(self, method, params, job=False):
         self.id = str(uuid.uuid4())
         self.method = method
         self.params = params
+        self.job = job
         self.returned = Event()
         self.result = None
         self.errno = None
@@ -275,6 +276,9 @@ class LegacyClient:
         elif _id is not None and msg == 'result':
             if call := self._calls.get(_id):
                 call.result = message.get('result')
+                if call.job and isinstance(call.result, int):
+                    # Jobs hand back the job id as the call result
+                    self._expect_job_result(call.result)
                 if 'error' in message:
                     call.errno = message['error'].get('error')
                     call.error = message['error'].get('reason')
@@ -380,9 +384,19 @@ class LegacyClient:
     def _unregister_call(self, call):
         self._calls.pop(call.id, None)
 
+    def _expect_job_result(self, job_id):
+        """
+        Mark a job as one this client is going to wait on. The caller builds a `Job` for it
+        once `call()` wakes up. The job can finish before that happens, and `_jobs_callback`
+        only keeps finished jobs that carry this mark.
+        """
+        with self._jobs_lock:
+            self._jobs[job_id].setdefault('__ready', Event())
+
     def _jobs_callback(self, mtype, **message):
         """
-        Method to process the received job events.
+        Method to process the received job events. Finished jobs that nobody on this side
+        is waiting on are dropped.
         """
         fields = message.get('fields')
         job_id = fields['id']
@@ -395,14 +409,15 @@ class LegacyClient:
                         target=job['__callback'], args=(job,), daemon=True,
                     ).start()
                 if mtype == 'CHANGED' and job['state'] in ('SUCCESS', 'FAILED', 'ABORTED'):
-                    # If an Event already exist we just set it to mark it finished.
-                    # Otherwise, we create a new Event.
-                    # This is to prevent a race-condition of job finishing before
-                    # the client can create the Event.
                     event = job.get('__ready')
                     if event is None:
-                        event = job['__ready'] = Event()
-                    event.set()
+                        # Nobody on this side is waiting for this job. It was started by
+                        # another client or by middleware itself. Every job on the system
+                        # arrives here, so keeping finished ones would hold their results
+                        # for as long as the connection lives.
+                        del self._jobs[job_id]
+                    else:
+                        event.set()
 
     def _jobs_subscribe(self):
         """
@@ -419,7 +434,7 @@ class LegacyClient:
         if job and not self._jobs_watching:
             self._jobs_subscribe()
 
-        c = Call(method, params)
+        c = Call(method, params, job=bool(job))
         self._register_call(c)
         try:
             self._send({
