@@ -22,11 +22,11 @@ def _bare(cls, **attrs):
 
 
 def _current():
-    return _bare(JSONRPCClient, _calls={}, _jobs=defaultdict(dict), _jobs_lock=Lock())
+    return _bare(JSONRPCClient, _calls={}, _jobs=defaultdict(dict), _jobs_lock=Lock(), _unclaimed_jobs={})
 
 
 def _legacy():
-    return _bare(LegacyClient, _calls={}, _jobs=defaultdict(dict), _jobs_lock=Lock(),
+    return _bare(LegacyClient, _calls={}, _jobs=defaultdict(dict), _jobs_lock=Lock(), _unclaimed_jobs={},
                  _connected=Event(), _closed=Event(), _connection_error=None)
 
 

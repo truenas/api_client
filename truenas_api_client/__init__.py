@@ -56,7 +56,7 @@ from websocket._socket import sock_opt
 
 from . import ejson as json
 from .auth_api_key import api_key_authenticate, APIKeyAuthMech
-from .config import CALL_TIMEOUT
+from .config import CALL_TIMEOUT, UNCLAIMED_JOBS_MAX
 from .exc import ReserveFDException, ClientException, ErrnoMixin, ValidationErrors, CallTimeout  # noqa
 from .legacy import LegacyClient
 from .jsonrpc import CollectionUpdateParams, ErrorObj, JobFields, JSONRPCError, JSONRPCMessage, TruenasError
@@ -314,16 +314,19 @@ class WSClient:
 class Call:
     """An encapsulation of the data from a single request-response pair."""
 
-    def __init__(self, method: str, params: tuple):
+    def __init__(self, method: str, params: tuple, wants_job: bool = True):
         """Initialize a `Call` object with an automatically-assigned id.
 
         Args:
             method: The API method being called.
             params: Arguments passed to the method.
+            wants_job: `False` if the caller only wants the job id, so the client can drop the
+                job state instead of keeping it until a `Job` that never comes asks for it.
         """
         self.id = str(uuid.uuid4())
         self.method = method
         self.params = params
+        self.wants_job = wants_job
         self.returned = Event()
         self.result: Any = None
         self.job_id: int | None = None
@@ -364,6 +367,7 @@ class Job:
         # Otherwise, we create a new stub for the job with the Event for when
         # the job event arrives to use existing event.
         with client._jobs_lock:
+            client._unclaimed_jobs.pop(job_id, None)
             job = client._jobs[job_id]
             self.event = job.get('__ready')
             if self.event is None:
@@ -479,6 +483,8 @@ class JSONRPCClient:
 
         self._calls: dict[str, Call] = {}
         self._jobs: defaultdict[str, _JobDict] = defaultdict(dict)  # type: ignore
+        # we use this dict as an ordered set because python stdlib has no ordered set
+        self._unclaimed_jobs: dict[str, None] = {}
         self._jobs_lock = Lock()
         self._jobs_watching = False
         self._new_style_jobs = False
@@ -560,6 +566,10 @@ class JSONRPCClient:
                             if params['collection'] == 'core.get_jobs' and params['msg'] in ['added', 'changed']:
                                 for message_id in params['fields']['message_ids']:
                                     if (call := self._calls.get(message_id)) is not None:
+                                        if call.wants_job:
+                                            with self._jobs_lock:
+                                                self._jobs.setdefault(params['id'], {})
+                                                self._unclaimed_jobs.pop(params['id'], None)
                                         call.result = params['id']
                                         call.job_id = params['id']
                                         call.returned.set()
@@ -765,6 +775,20 @@ class JSONRPCClient:
         job_id = fields['id']
         with self._jobs_lock:
             if fields:
+                if job_id not in self._jobs:
+                    # No `Job` object has claimed this job yet. With new-style jobs,
+                    # `message_ids` identifies our jobs on their first event, so anything
+                    # unclaimed belongs to another client.
+                    if self._new_style_jobs:
+                        return
+                    # Older servers send no `message_ids`, and there a job can finish before
+                    # the caller learns its id. Keep the most recently started unclaimed jobs
+                    # to cover that race.
+                    self._unclaimed_jobs[job_id] = None
+                    while len(self._unclaimed_jobs) > UNCLAIMED_JOBS_MAX:
+                        evicted = next(iter(self._unclaimed_jobs))
+                        del self._unclaimed_jobs[evicted]
+                        self._jobs.pop(evicted, None)
                 job = self._jobs[job_id]
                 job.update(**fields)
                 if callable(job.get('__callback')):
@@ -855,7 +879,7 @@ class JSONRPCClient:
                     # We need to make sure we are subscribed to receive job updates
                     self._jobs_subscribe()
 
-        c = Call(method, params)
+        c = Call(method, params, wants_job=bool(job) or background)
         if register_call:
             self._register_call(c)
         try:
