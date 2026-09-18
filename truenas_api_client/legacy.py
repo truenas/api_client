@@ -21,7 +21,7 @@ from websocket._socket import sock_opt
 
 from . import ejson as json
 from .auth_api_key import APIKeyAuthMech, api_key_authenticate
-from .config import CALL_TIMEOUT
+from .config import CALL_TIMEOUT, UNCLAIMED_JOBS_MAX
 from .exc import ReserveFDException, ClientException, ValidationErrors, CallTimeout
 from .utils import MIDDLEWARE_RUN_DIR, undefined, UndefinedType, set_socket_options
 
@@ -169,6 +169,7 @@ class Job:
         # Otherwise we create a new stub for the job with the Event for when
         # the job event arrives to use existing event.
         with client._jobs_lock:
+            client._unclaimed_jobs.pop(job_id, None)
             job = client._jobs[job_id]
             self.event = job.get('__ready')
             if self.event is None:
@@ -221,6 +222,8 @@ class LegacyClient:
 
         self._calls = {}
         self._jobs = defaultdict(dict)
+        # we use this dict as an ordered set because python stdlib has no ordered set
+        self._unclaimed_jobs = {}
         self._jobs_lock = Lock()
         self._jobs_watching = False
         self._pings = {}
@@ -388,6 +391,15 @@ class LegacyClient:
         job_id = fields['id']
         with self._jobs_lock:
             if fields:
+                if job_id not in self._jobs:
+                    # The server sends events for every job the credentials can read, most of
+                    # them started by other clients. A job can also finish before the caller
+                    # learns its id, so keep a bounded window of unclaimed ones for that race.
+                    self._unclaimed_jobs[job_id] = None
+                    while len(self._unclaimed_jobs) > UNCLAIMED_JOBS_MAX:
+                        evicted = next(iter(self._unclaimed_jobs))
+                        del self._unclaimed_jobs[evicted]
+                        self._jobs.pop(evicted, None)
                 job = self._jobs[job_id]
                 job.update(fields)
                 if callable(job.get('__callback')):
