@@ -674,6 +674,11 @@ class JSONRPCClient:
         elif code == JSONRPCError.METHOD_NOT_FOUND:
             error = ClientException(error.get('message') or code.name, ErrnoMixin.ENOMETHOD)
         else:
+            if code == JSONRPCError.TRUENAS_TOO_MANY_CONCURRENT_CALLS:
+                logger.debug('A TRUENAS_TOO_MANY_CONCURRENT_CALLS error occurred. Currently running calls: %r', [
+                    call.method for call in self._calls.values()
+                ])
+
             error = ClientException(error.get('message') or code.name)
 
         return error, py_exception
