@@ -1,0 +1,60 @@
+name: version
+
+on:
+  pull_request:
+    branches: [master, 'stable/[0-9]*', 'release/[0-9]*']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+    - run: pip install packaging
+    - name: Check the package version matches the branch
+      env:
+        BASE: ${{ github.base_ref }}
+      shell: python
+      run: |
+        import os, re, subprocess, sys, tomllib
+        from packaging.version import InvalidVersion, Version
+
+        def fail(why):
+            sys.exit(f"{why} See Package Versions in README.md.")
+
+        def skip(why):
+            print(f"{why}, so there is nothing to check.")
+            sys.exit()
+
+        raw = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+        try:
+            v = Version(raw)
+        except InvalidVersion:
+            fail(f"Version {raw!r} in pyproject.toml is not a valid version.")
+        base = os.environ["BASE"]
+        heads = subprocess.run(["git", "ls-remote", "--heads", "origin"], capture_output=True, text=True, check=True).stdout
+        branches = re.findall(r"refs/heads/(\S+)", heads)
+
+        if base.startswith("release/"):
+            try:
+                ok = v == Version(base.removeprefix("release/"))
+            except InvalidVersion:
+                skip(f"{base} does not name a version")
+        else:
+            if base == "master":
+                stables = [int(b[7:]) for b in branches if re.fullmatch(r"stable/\d+", b)]
+                if not stables:
+                    fail("Found no stable/N branch to compare master with.")
+                n = 1 + max(stables)
+            elif re.fullmatch(r"stable/\d+", base):
+                n = int(base.removeprefix("stable/"))
+            else:
+                skip(f"{base} is not stable/N")
+            finals = [Version(b[8:]) for b in branches if re.fullmatch(rf"release/{n}\.\d+\.\d+", b)]
+            ok = v.is_devrelease and v.major == n and all(v > f for f in finals)
+
+        if not ok:
+            fail(f"Version {v} is wrong for {base}.")
+        print(f"Version {v} is correct for {base}.")
