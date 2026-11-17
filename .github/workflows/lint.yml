@@ -1,4 +1,4 @@
-name: flake8
+name: ruff
 
 on:
   pull_request:
@@ -10,14 +10,13 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v3
+    - uses: actions/checkout@v4
       with:
-        python-version: 3.11
-    - name: Install dependencies
+        fetch-depth: 0
+    - uses: astral-sh/ruff-action@v4.1.0
+    - name: Check formatting of changed and new files
+      env:
+        BASE: ${{ github.base_ref }}
       run: |
-        python -m pip install --upgrade pip
-        pip install flake8
-    - name: Analyze the code with flake8
-      run: flake8 .
+        git diff -z --name-only --diff-filter=ACMR "origin/$BASE...HEAD" -- '*.py' '*.pyi' '*.md' \
+          | xargs -0 -r ruff format --check --diff

@@ -37,9 +37,7 @@ class TestTNScramClientInit(unittest.TestCase):
         server_key = truenas_pyscram.CryptoDatum(b"z" * 64)
 
         client = TNScramClient(
-            client_key=client_key,
-            stored_key=stored_key,
-            server_key=server_key
+            client_key=client_key, stored_key=stored_key, server_key=server_key
         )
 
         self.assertIsNone(client.raw_key_material)
@@ -78,7 +76,9 @@ class TestTNScramClientFirstMessage(unittest.TestCase):
 
         client.get_client_first_message(username="testuser")
 
-        self.assertIsInstance(client.client_first_message, truenas_pyscram.ClientFirstMessage)
+        self.assertIsInstance(
+            client.client_first_message, truenas_pyscram.ClientFirstMessage
+        )
         assert client.client_first_message is not None
         self.assertEqual(client.client_first_message.username, "testuser")
         self.assertEqual(client.client_first_message.api_key_id, 0)
@@ -98,10 +98,7 @@ class TestTNScramClientFirstMessage(unittest.TestCase):
         """Test client first message with GS2 header."""
         client = TNScramClient(raw_key_material="test_password")
 
-        client.get_client_first_message(
-            username="testuser",
-            gs2_header="p=tls-unique"
-        )
+        client.get_client_first_message(username="testuser", gs2_header="p=tls-unique")
 
         assert client.client_first_message is not None
         self.assertEqual(client.client_first_message.gs2_header, "p=tls-unique")
@@ -113,7 +110,9 @@ class TestTNScramClientFirstMessage(unittest.TestCase):
         client.get_client_first_message(username="testuser")
 
         self.assertIsNotNone(client.client_first_message)
-        self.assertIsInstance(client.client_first_message, truenas_pyscram.ClientFirstMessage)
+        self.assertIsInstance(
+            client.client_first_message, truenas_pyscram.ClientFirstMessage
+        )
 
 
 class TestTNScramClientFinalMessage(unittest.TestCase):
@@ -136,17 +135,19 @@ class TestTNScramClientFinalMessage(unittest.TestCase):
         server_first_msg = truenas_pyscram.ServerFirstMessage(
             client_first=client.client_first_message,
             salt=self.auth_data.salt,
-            iterations=self.auth_data.iterations
+            iterations=self.auth_data.iterations,
         )
 
         server_resp: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
-            'rfc_str': str(server_first_msg)
+            "scram_type": ScramMessageType.SERVER_FIRST_RESPONSE,
+            "rfc_str": str(server_first_msg),
         }
 
         client.get_client_final_message(server_resp)
 
-        self.assertIsInstance(client.client_final_message, truenas_pyscram.ClientFinalMessage)
+        self.assertIsInstance(
+            client.client_final_message, truenas_pyscram.ClientFinalMessage
+        )
         self.assertIsNotNone(client.client_key)
         self.assertIsNotNone(client.stored_key)
         self.assertIsNotNone(client.server_key)
@@ -156,24 +157,26 @@ class TestTNScramClientFinalMessage(unittest.TestCase):
         client = TNScramClient(
             client_key=self.auth_data.client_key,
             stored_key=self.auth_data.stored_key,
-            server_key=self.auth_data.server_key
+            server_key=self.auth_data.server_key,
         )
         client.get_client_first_message(username=self.username)
 
         server_first_msg = truenas_pyscram.ServerFirstMessage(
             client_first=client.client_first_message,
             salt=self.auth_data.salt,
-            iterations=self.auth_data.iterations
+            iterations=self.auth_data.iterations,
         )
 
         server_resp: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
-            'rfc_str': str(server_first_msg)
+            "scram_type": ScramMessageType.SERVER_FIRST_RESPONSE,
+            "rfc_str": str(server_first_msg),
         }
 
         client.get_client_final_message(server_resp)
 
-        self.assertIsInstance(client.client_final_message, truenas_pyscram.ClientFinalMessage)
+        self.assertIsInstance(
+            client.client_final_message, truenas_pyscram.ClientFinalMessage
+        )
 
     def test_get_client_final_message_wrong_type(self):
         """Test error handling for wrong message type."""
@@ -181,8 +184,8 @@ class TestTNScramClientFinalMessage(unittest.TestCase):
         client.get_client_first_message(username=self.username)
 
         server_resp: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
-            'rfc_str': 'v=test'
+            "scram_type": ScramMessageType.SERVER_FINAL_RESPONSE,
+            "rfc_str": "v=test",
         }
 
         with self.assertRaises(TypeError) as ctx:
@@ -207,8 +210,8 @@ class TestTNScramClientFinalMessage(unittest.TestCase):
         rfc_string = f"r={nonce_b64},s={salt_b64},i={high_iters}"
 
         server_resp: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
-            'rfc_str': rfc_string
+            "scram_type": ScramMessageType.SERVER_FIRST_RESPONSE,
+            "rfc_str": rfc_string,
         }
 
         # Both C extension and pure Python raise ScramError
@@ -236,11 +239,11 @@ class TestTNScramClientVerification(unittest.TestCase):
         server_first_msg = truenas_pyscram.ServerFirstMessage(
             client_first=client.client_first_message,
             salt=self.auth_data.salt,
-            iterations=self.auth_data.iterations
+            iterations=self.auth_data.iterations,
         )
         server_resp_first: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
-            'rfc_str': str(server_first_msg)
+            "scram_type": ScramMessageType.SERVER_FIRST_RESPONSE,
+            "rfc_str": str(server_first_msg),
         }
         client.get_client_final_message(server_resp_first)
 
@@ -250,11 +253,11 @@ class TestTNScramClientVerification(unittest.TestCase):
             server_first=client.server_first_message,
             client_final=client.client_final_message,
             stored_key=client.stored_key,
-            server_key=client.server_key
+            server_key=client.server_key,
         )
         server_resp_final: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
-            'rfc_str': str(server_final_msg)
+            "scram_type": ScramMessageType.SERVER_FINAL_RESPONSE,
+            "rfc_str": str(server_final_msg),
         }
 
         result = client.verify_server_final_message(server_resp_final)
@@ -267,8 +270,8 @@ class TestTNScramClientVerification(unittest.TestCase):
         client = TNScramClient(raw_key_material=self.password)
 
         server_resp: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
-            'rfc_str': 'r=test,s=test,i=100000'
+            "scram_type": ScramMessageType.SERVER_FIRST_RESPONSE,
+            "rfc_str": "r=test,s=test,i=100000",
         }
 
         with self.assertRaises(TypeError) as ctx:
@@ -280,26 +283,25 @@ class TestTNScramClientVerification(unittest.TestCase):
         """Test error when server_key is not available."""
         # Create client with only client_key and stored_key (no server_key)
         client = TNScramClient(
-            client_key=self.auth_data.client_key,
-            stored_key=self.auth_data.stored_key
+            client_key=self.auth_data.client_key, stored_key=self.auth_data.stored_key
         )
         client.get_client_first_message(username=self.username)
 
         server_first_msg = truenas_pyscram.ServerFirstMessage(
             client_first=client.client_first_message,
             salt=self.auth_data.salt,
-            iterations=self.auth_data.iterations
+            iterations=self.auth_data.iterations,
         )
         server_resp_first: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
-            'rfc_str': str(server_first_msg)
+            "scram_type": ScramMessageType.SERVER_FIRST_RESPONSE,
+            "rfc_str": str(server_first_msg),
         }
         client.get_client_final_message(server_resp_first)
 
         # Try to verify without server_key
         server_resp_final: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
-            'rfc_str': 'v=dGVzdA=='
+            "scram_type": ScramMessageType.SERVER_FINAL_RESPONSE,
+            "rfc_str": "v=dGVzdA==",
         }
 
         with self.assertRaises(ValueError) as ctx:
@@ -330,11 +332,11 @@ class TestTNScramClientFullFlow(unittest.TestCase):
         server_first = truenas_pyscram.ServerFirstMessage(
             client_first=client.client_first_message,
             salt=auth_data.salt,
-            iterations=auth_data.iterations
+            iterations=auth_data.iterations,
         )
         server_resp_first: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
-            'rfc_str': str(server_first)
+            "scram_type": ScramMessageType.SERVER_FIRST_RESPONSE,
+            "rfc_str": str(server_first),
         }
 
         # Step 3: Client final message
@@ -352,11 +354,11 @@ class TestTNScramClientFullFlow(unittest.TestCase):
             server_first=server_first,
             client_final=client.client_final_message,
             stored_key=client.stored_key,
-            server_key=client.server_key
+            server_key=client.server_key,
         )
         server_resp_final: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
-            'rfc_str': str(server_final)
+            "scram_type": ScramMessageType.SERVER_FINAL_RESPONSE,
+            "rfc_str": str(server_final),
         }
 
         # Step 5: Verify server signature
@@ -374,7 +376,7 @@ class TestTNScramClientFullFlow(unittest.TestCase):
         client = TNScramClient(
             client_key=auth_data.client_key,
             stored_key=auth_data.stored_key,
-            server_key=auth_data.server_key
+            server_key=auth_data.server_key,
         )
 
         # Complete flow
@@ -383,11 +385,11 @@ class TestTNScramClientFullFlow(unittest.TestCase):
         server_first = truenas_pyscram.ServerFirstMessage(
             client_first=client.client_first_message,
             salt=auth_data.salt,
-            iterations=auth_data.iterations
+            iterations=auth_data.iterations,
         )
         server_resp_first: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
-            'rfc_str': str(server_first)
+            "scram_type": ScramMessageType.SERVER_FIRST_RESPONSE,
+            "rfc_str": str(server_first),
         }
 
         client.get_client_final_message(server_resp_first)
@@ -397,11 +399,11 @@ class TestTNScramClientFullFlow(unittest.TestCase):
             server_first=server_first,
             client_final=client.client_final_message,
             stored_key=auth_data.stored_key,
-            server_key=auth_data.server_key
+            server_key=auth_data.server_key,
         )
         server_resp_final: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
-            'rfc_str': str(server_final)
+            "scram_type": ScramMessageType.SERVER_FINAL_RESPONSE,
+            "rfc_str": str(server_final),
         }
 
         result = client.verify_server_final_message(server_resp_final)
@@ -415,10 +417,7 @@ class TestTNScramClientFullFlow(unittest.TestCase):
 
         auth_data = truenas_pyscram.generate_scram_auth_data()
 
-        client = TNScramClient(
-            raw_key_material=api_key,
-            api_key_id=api_key_id
-        )
+        client = TNScramClient(raw_key_material=api_key, api_key_id=api_key_id)
 
         client.get_client_first_message(username=username)
         assert client.client_first_message is not None
@@ -427,11 +426,11 @@ class TestTNScramClientFullFlow(unittest.TestCase):
         server_first = truenas_pyscram.ServerFirstMessage(
             client_first=client.client_first_message,
             salt=auth_data.salt,
-            iterations=auth_data.iterations
+            iterations=auth_data.iterations,
         )
         server_resp_first: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FIRST_RESPONSE,
-            'rfc_str': str(server_first)
+            "scram_type": ScramMessageType.SERVER_FIRST_RESPONSE,
+            "rfc_str": str(server_first),
         }
 
         client.get_client_final_message(server_resp_first)
@@ -441,11 +440,11 @@ class TestTNScramClientFullFlow(unittest.TestCase):
             server_first=server_first,
             client_final=client.client_final_message,
             stored_key=client.stored_key,
-            server_key=client.server_key
+            server_key=client.server_key,
         )
         server_resp_final: ScramMessage = {
-            'scram_type': ScramMessageType.SERVER_FINAL_RESPONSE,
-            'rfc_str': str(server_final)
+            "scram_type": ScramMessageType.SERVER_FINAL_RESPONSE,
+            "rfc_str": str(server_final),
         }
 
         result = client.verify_server_final_message(server_resp_final)
@@ -470,5 +469,5 @@ class TestTNScramClientChannelBinding(unittest.TestCase):
         self.assertTrue(msg["rfc_str"].startswith("n,,"))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

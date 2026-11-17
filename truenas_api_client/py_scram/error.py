@@ -55,14 +55,14 @@ class ScramError(RuntimeError):
 
 
 __all__ = [
-    'ScramError',
-    'SCRAM_E_SUCCESS',
-    'SCRAM_E_INVALID_REQUEST',
-    'SCRAM_E_MEMORY_ERROR',
-    'SCRAM_E_CRYPTO_ERROR',
-    'SCRAM_E_BASE64_ERROR',
-    'SCRAM_E_PARSE_ERROR',
-    'SCRAM_E_FORMAT_ERROR',
-    'SCRAM_E_AUTH_FAILED',
-    'SCRAM_E_FAULT',
+    "ScramError",
+    "SCRAM_E_SUCCESS",
+    "SCRAM_E_INVALID_REQUEST",
+    "SCRAM_E_MEMORY_ERROR",
+    "SCRAM_E_CRYPTO_ERROR",
+    "SCRAM_E_BASE64_ERROR",
+    "SCRAM_E_PARSE_ERROR",
+    "SCRAM_E_FORMAT_ERROR",
+    "SCRAM_E_AUTH_FAILED",
+    "SCRAM_E_FAULT",
 ]

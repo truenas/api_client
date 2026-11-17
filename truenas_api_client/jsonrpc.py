@@ -3,6 +3,7 @@
 https://www.jsonrpc.org/specification
 
 """
+
 import enum
 from typing import Any, Literal, NamedTuple, NotRequired, TypeAlias, TypedDict, final
 
@@ -58,17 +59,20 @@ class CollectionUpdateParams(TypedDict):
 
 @final
 class CollectionUpdate(TypedDict):
-    jsonrpc: Literal['2.0']
-    method: Literal['collection_update']
+    jsonrpc: Literal["2.0"]
+    method: Literal["collection_update"]
     params: CollectionUpdateParams
 
 
-TruenasTraceback = TypedDict('TruenasTraceback', {
-    'class': str,
-    'frames': list[dict[str, Any]],
-    'formatted': str,
-    'repr': str,
-})
+TruenasTraceback = TypedDict(
+    "TruenasTraceback",
+    {
+        "class": str,
+        "frames": list[dict[str, Any]],
+        "formatted": str,
+        "repr": str,
+    },
+)
 # Has to be defined this way because `class` is a keyword.
 
 
@@ -88,14 +92,14 @@ class NotifyUnsubscribedParams(TypedDict):
 
 @final
 class NotifyUnsubscribed(TypedDict):
-    jsonrpc: Literal['2.0']
-    method: Literal['notify_unsubscribed']
+    jsonrpc: Literal["2.0"]
+    method: Literal["notify_unsubscribed"]
     params: NotifyUnsubscribedParams
 
 
 @final
 class SuccessResponse(TypedDict):
-    jsonrpc: Literal['2.0']
+    jsonrpc: Literal["2.0"]
     result: Any
     id: str
 
@@ -108,11 +112,13 @@ class ErrorObj(TypedDict):
 
 @final
 class ErrorResponse(TypedDict):
-    jsonrpc: Literal['2.0']
+    jsonrpc: Literal["2.0"]
     error: ErrorObj
     id: str | None
 
 
 Notification: TypeAlias = CollectionUpdate | NotifyUnsubscribed
 Response: TypeAlias = SuccessResponse | ErrorResponse
-JSONRPCMessage: TypeAlias = CollectionUpdate | NotifyUnsubscribed | SuccessResponse | ErrorResponse
+JSONRPCMessage: TypeAlias = (
+    CollectionUpdate | NotifyUnsubscribed | SuccessResponse | ErrorResponse
+)

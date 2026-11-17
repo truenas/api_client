@@ -33,7 +33,7 @@ class TestRawKeySeparator(unittest.TestCase):
 
     def test_separator_is_dash(self):
         """Verify the separator is a dash as documented."""
-        self.assertEqual(RAW_KEY_SEPARATOR, '-')
+        self.assertEqual(RAW_KEY_SEPARATOR, "-")
 
 
 class TestGetKeyMaterialRawKey(unittest.TestCase):
@@ -47,7 +47,7 @@ class TestGetKeyMaterialRawKey(unittest.TestCase):
         self.assertIsInstance(result, KeyData)
         self.assertEqual(result.key_data_type, KeyDataType.RAW)
         self.assertIsInstance(result.key_data, dict)
-        self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], key)
+        self.assertEqual(cast(RawKeyData, result.key_data)["raw_key"], key)
 
     def test_raw_key_realistic_format(self):
         """Test raw key with realistic alphanumeric format (no dashes in key material)."""
@@ -56,7 +56,7 @@ class TestGetKeyMaterialRawKey(unittest.TestCase):
         result = get_key_material(key)
 
         self.assertEqual(result.key_data_type, KeyDataType.RAW)
-        self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], key)
+        self.assertEqual(cast(RawKeyData, result.key_data)["raw_key"], key)
 
     def test_raw_key_long_id(self):
         """Test raw key with long numeric ID."""
@@ -64,7 +64,7 @@ class TestGetKeyMaterialRawKey(unittest.TestCase):
         result = get_key_material(key)
 
         self.assertEqual(result.key_data_type, KeyDataType.RAW)
-        self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], key)
+        self.assertEqual(cast(RawKeyData, result.key_data)["raw_key"], key)
 
 
 class TestGetKeyMaterialJSON(unittest.TestCase):
@@ -77,7 +77,7 @@ class TestGetKeyMaterialJSON(unittest.TestCase):
         result = get_key_material(json_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.RAW)
-        self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], "789-jsonkey123")
+        self.assertEqual(cast(RawKeyData, result.key_data)["raw_key"], "789-jsonkey123")
 
     def test_json_with_precomputed_keys(self):
         """Test JSON with pre-computed cryptographic keys."""
@@ -85,17 +85,17 @@ class TestGetKeyMaterialJSON(unittest.TestCase):
             "client_key": "Y2xpZW50a2V5MTIz",
             "stored_key": "c3RvcmVka2V5NDU2",
             "server_key": "c2VydmVya2V5Nzg5",
-            "api_key_id": 42
+            "api_key_id": 42,
         }
         json_str = json.dumps(data)
         result = get_key_material(json_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
         precomputed = cast(PrecomputedKeyData, result.key_data)
-        self.assertEqual(precomputed['client_key'], "Y2xpZW50a2V5MTIz")
-        self.assertEqual(precomputed['stored_key'], "c3RvcmVka2V5NDU2")
-        self.assertEqual(precomputed['server_key'], "c2VydmVya2V5Nzg5")
-        self.assertEqual(precomputed['api_key_id'], 42)
+        self.assertEqual(precomputed["client_key"], "Y2xpZW50a2V5MTIz")
+        self.assertEqual(precomputed["stored_key"], "c3RvcmVka2V5NDU2")
+        self.assertEqual(precomputed["server_key"], "c2VydmVya2V5Nzg5")
+        self.assertEqual(precomputed["api_key_id"], 42)
 
     def test_json_missing_required_field(self):
         """Test JSON missing a required field raises ValueError."""
@@ -103,7 +103,7 @@ class TestGetKeyMaterialJSON(unittest.TestCase):
             "client_key": "Y2xpZW50a2V5MTIz",
             "stored_key": "c3RvcmVka2V5NDU2",
             # Missing server_key
-            "api_key_id": 42
+            "api_key_id": 42,
         }
         json_str = json.dumps(data)
 
@@ -127,8 +127,8 @@ api_key_id = 100
 
         self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
         precomputed = cast(PrecomputedKeyData, result.key_data)
-        self.assertEqual(precomputed['api_key_id'], 100)
-        self.assertEqual(precomputed['client_key'], "Y2xpZW50a2V5MTIz")
+        self.assertEqual(precomputed["api_key_id"], 100)
+        self.assertEqual(precomputed["client_key"], "Y2xpZW50a2V5MTIz")
 
     def test_ini_without_section_header(self):
         """Test INI format without section header uses [DEFAULT] section."""
@@ -142,7 +142,7 @@ api_key_id = 200
         result = get_key_material(ini_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-        self.assertEqual(cast(PrecomputedKeyData, result.key_data)['api_key_id'], 200)
+        self.assertEqual(cast(PrecomputedKeyData, result.key_data)["api_key_id"], 200)
 
     def test_ini_single_section_any_name(self):
         """Test INI with single section accepts any name."""
@@ -155,7 +155,7 @@ api_key_id = 300
         result = get_key_material(ini_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-        self.assertEqual(cast(PrecomputedKeyData, result.key_data)['api_key_id'], 300)
+        self.assertEqual(cast(PrecomputedKeyData, result.key_data)["api_key_id"], 300)
 
     def test_ini_with_multiple_sections_requires_truenas_api_key(self):
         """Test INI with multiple sections requires [TRUENAS_API_KEY]."""
@@ -174,8 +174,10 @@ api_key_id = 400
         result = get_key_material(ini_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-        self.assertEqual(cast(PrecomputedKeyData, result.key_data)['api_key_id'], 400)
-        self.assertEqual(cast(PrecomputedKeyData, result.key_data)['client_key'], "correct1")
+        self.assertEqual(cast(PrecomputedKeyData, result.key_data)["api_key_id"], 400)
+        self.assertEqual(
+            cast(PrecomputedKeyData, result.key_data)["client_key"], "correct1"
+        )
 
     def test_ini_with_multiple_sections_without_truenas_api_key_fails(self):
         """Test INI with multiple sections but no [TRUENAS_API_KEY] raises error."""
@@ -197,7 +199,7 @@ raw_key = 500-rawkeydata
         result = get_key_material(ini_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.RAW)
-        self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], "500-rawkeydata")
+        self.assertEqual(cast(RawKeyData, result.key_data)["raw_key"], "500-rawkeydata")
 
 
 class TestParseINIConfig(unittest.TestCase):
@@ -211,8 +213,8 @@ api_key_id = 123
 """
         result = _parse_ini_config(ini_str)
 
-        self.assertEqual(result['client_key'], "test1")
-        self.assertEqual(result['api_key_id'], 123)  # Should be converted to int
+        self.assertEqual(result["client_key"], "test1")
+        self.assertEqual(result["api_key_id"], 123)  # Should be converted to int
 
     def test_default_section_explicit(self):
         """Test parsing INI with explicit [DEFAULT] section."""
@@ -222,8 +224,8 @@ api_key_id = 456
 """
         result = _parse_ini_config(ini_str)
 
-        self.assertEqual(result['client_key'], "test2")
-        self.assertEqual(result['api_key_id'], 456)
+        self.assertEqual(result["client_key"], "test2")
+        self.assertEqual(result["api_key_id"], 456)
 
     def test_api_key_id_type_conversion(self):
         """Test that api_key_id is converted from string to int."""
@@ -233,9 +235,9 @@ other_field = stays_string
 """
         result = _parse_ini_config(ini_str)
 
-        self.assertIsInstance(result['api_key_id'], int)
-        self.assertEqual(result['api_key_id'], 789)
-        self.assertIsInstance(result['other_field'], str)
+        self.assertIsInstance(result["api_key_id"], int)
+        self.assertEqual(result["api_key_id"], 789)
+        self.assertIsInstance(result["other_field"], str)
 
 
 class TestGetKeyMaterialFromFile(unittest.TestCase):
@@ -247,10 +249,10 @@ class TestGetKeyMaterialFromFile(unittest.TestCase):
             "client_key": "fromfile1",
             "stored_key": "fromfile2",
             "server_key": "fromfile3",
-            "api_key_id": 600
+            "api_key_id": 600,
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(data, f)
             f.flush()
             temp_path = f.name
@@ -259,7 +261,9 @@ class TestGetKeyMaterialFromFile(unittest.TestCase):
             result = get_key_material(temp_path)
 
             self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-            self.assertEqual(cast(PrecomputedKeyData, result.key_data)['api_key_id'], 600)
+            self.assertEqual(
+                cast(PrecomputedKeyData, result.key_data)["api_key_id"], 600
+            )
         finally:
             Path(temp_path).unlink()
 
@@ -267,7 +271,7 @@ class TestGetKeyMaterialFromFile(unittest.TestCase):
         """Test reading raw API key from a file."""
         raw_key = "700-keyfromfile"
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             f.write(raw_key)
             f.flush()
             temp_path = f.name
@@ -276,7 +280,7 @@ class TestGetKeyMaterialFromFile(unittest.TestCase):
             result = get_key_material(temp_path)
 
             self.assertEqual(result.key_data_type, KeyDataType.RAW)
-            self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], raw_key)
+            self.assertEqual(cast(RawKeyData, result.key_data)["raw_key"], raw_key)
         finally:
             Path(temp_path).unlink()
 
@@ -289,7 +293,7 @@ server_key = inifile3
 api_key_id = 800
 """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.ini', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ini", delete=False) as f:
             f.write(ini_content)
             f.flush()
             temp_path = f.name
@@ -298,7 +302,9 @@ api_key_id = 800
             result = get_key_material(temp_path)
 
             self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-            self.assertEqual(cast(PrecomputedKeyData, result.key_data)['api_key_id'], 800)
+            self.assertEqual(
+                cast(PrecomputedKeyData, result.key_data)["api_key_id"], 800
+            )
         finally:
             Path(temp_path).unlink()
 
@@ -350,7 +356,7 @@ class TestGetKeyMaterialErrors(unittest.TestCase):
             "client_key": 123,  # Should be string
             "stored_key": "c3RvcmVka2V5NDU2",
             "server_key": "c2VydmVya2V5Nzg5",
-            "api_key_id": 42
+            "api_key_id": 42,
         }
         json_str = json.dumps(data)
 
@@ -364,7 +370,7 @@ class TestGetKeyMaterialErrors(unittest.TestCase):
             "client_key": "Y2xpZW50a2V5MTIz",
             "stored_key": "c3RvcmVka2V5NDU2",
             "server_key": "c2VydmVya2V5Nzg5",
-            "api_key_id": "should_be_int"  # Should be int
+            "api_key_id": "should_be_int",  # Should be int
         }
         json_str = json.dumps(data)
 
@@ -378,8 +384,8 @@ class TestKeyDataType(unittest.TestCase):
 
     def test_enum_values(self):
         """Test KeyDataType enum has correct values."""
-        self.assertEqual(KeyDataType.RAW, 'RAW')
-        self.assertEqual(KeyDataType.PRECOMPUTED, 'PRECOMPUTED')
+        self.assertEqual(KeyDataType.RAW, "RAW")
+        self.assertEqual(KeyDataType.PRECOMPUTED, "PRECOMPUTED")
 
     def test_enum_comparison(self):
         """Test KeyDataType can be compared."""
@@ -417,7 +423,7 @@ class TestPeerCertAccessor(unittest.TestCase):
 class _StubWS:
     """Minimal WSClient stand-in for channel-binding policy tests."""
 
-    def __init__(self, *, cert_der=None, url=''):
+    def __init__(self, *, cert_der=None, url=""):
         self._cert_der = cert_der
         self.url = url
 
@@ -439,38 +445,39 @@ class TestResolveChannelBinding(unittest.TestCase):
     """
 
     def test_disabled_is_unbound_over_tls(self):
-        c = _StubClient(_StubWS(cert_der=b'DER', url='wss://nas/api/current'))
+        c = _StubClient(_StubWS(cert_der=b"DER", url="wss://nas/api/current"))
         self.assertIsNone(_resolve_channel_binding(c, False))
 
     def test_disabled_is_unbound_over_non_tls(self):
-        c = _StubClient(_StubWS(url='ws://nas/api/current'))
+        c = _StubClient(_StubWS(url="ws://nas/api/current"))
         self.assertIsNone(_resolve_channel_binding(c, False))
 
     def test_tls_returns_binding(self):
-        c = _StubClient(_StubWS(cert_der=b'DER', url='wss://nas/api/current'))
-        with mock.patch.object(auth_api_key, 'compute_tls_server_end_point',
-                               return_value='BINDING') as m:
-            self.assertEqual(_resolve_channel_binding(c, True), 'BINDING')
-        m.assert_called_once_with(b'DER')
+        c = _StubClient(_StubWS(cert_der=b"DER", url="wss://nas/api/current"))
+        with mock.patch.object(
+            auth_api_key, "compute_tls_server_end_point", return_value="BINDING"
+        ) as m:
+            self.assertEqual(_resolve_channel_binding(c, True), "BINDING")
+        m.assert_called_once_with(b"DER")
 
     def test_tls_but_backend_without_support_raises(self):
-        c = _StubClient(_StubWS(cert_der=b'DER', url='wss://nas/api/current'))
-        with mock.patch.object(auth_api_key, 'compute_tls_server_end_point', None):
+        c = _StubClient(_StubWS(cert_der=b"DER", url="wss://nas/api/current"))
+        with mock.patch.object(auth_api_key, "compute_tls_server_end_point", None):
             with self.assertRaises(ValueError) as ctx:
                 _resolve_channel_binding(c, True)
-        self.assertIn('channel_binding=False', str(ctx.exception))
+        self.assertIn("channel_binding=False", str(ctx.exception))
 
     def test_unix_socket_is_exempt(self):
         # Local IPC: a required binding resolves to unbound rather than failing.
-        c = _StubClient(_StubWS(url='ws+unix:///run/middleware.sock'))
+        c = _StubClient(_StubWS(url="ws+unix:///run/middleware.sock"))
         self.assertIsNone(_resolve_channel_binding(c, True))
 
     def test_non_tls_network_raises(self):
-        c = _StubClient(_StubWS(url='ws://nas/api/current'))
+        c = _StubClient(_StubWS(url="ws://nas/api/current"))
         with self.assertRaises(ValueError) as ctx:
             _resolve_channel_binding(c, True)
-        self.assertIn('TLS', str(ctx.exception))
-        self.assertIn('channel_binding=False', str(ctx.exception))
+        self.assertIn("TLS", str(ctx.exception))
+        self.assertIn("channel_binding=False", str(ctx.exception))
 
     def test_missing_transport_raises_when_required(self):
         with self.assertRaises(ValueError):
@@ -484,19 +491,19 @@ class TestMidcltChannelBindingFlag(unittest.TestCase):
     """Test the midclt --no-channel-binding and --plain CLI flags."""
 
     def test_default_keeps_channel_binding_enabled(self):
-        args = get_parser().parse_args(['call', 'system.info'])
+        args = get_parser().parse_args(["call", "system.info"])
         self.assertFalse(args.no_channel_binding)
 
     def test_flag_disables_channel_binding(self):
-        args = get_parser().parse_args(['--no-channel-binding', 'call', 'system.info'])
+        args = get_parser().parse_args(["--no-channel-binding", "call", "system.info"])
         self.assertTrue(args.no_channel_binding)
 
     def test_default_uses_scram_not_plain(self):
-        args = get_parser().parse_args(['call', 'system.info'])
+        args = get_parser().parse_args(["call", "system.info"])
         self.assertFalse(args.plain)
 
     def test_plain_flag_selects_plain(self):
-        args = get_parser().parse_args(['--plain', 'call', 'system.info'])
+        args = get_parser().parse_args(["--plain", "call", "system.info"])
         self.assertTrue(args.plain)
 
 
@@ -510,15 +517,15 @@ class _CallStubClient:
 
     def call(self, method, *args):
         self.calls.append(method)
-        if method == 'auth.mechanism_choices':
+        if method == "auth.mechanism_choices":
             return self._mechanisms
         # Default to a generic SUCCESS so the PLAIN/legacy paths complete.
-        return self._responses.get(method, {'response_type': 'SUCCESS'})
+        return self._responses.get(method, {"response_type": "SUCCESS"})
 
 
 # A syntactically valid raw API key (<id>-<key>). The SCRAM path (which would run
 # PBKDF2 on this) is never reached by these mechanism-policy tests.
-_RAW_KEY = '7-' + 'a' * 64
+_RAW_KEY = "7-" + "a" * 64
 
 
 class TestApiKeyMechanismPolicy(unittest.TestCase):
@@ -527,44 +534,54 @@ class TestApiKeyMechanismPolicy(unittest.TestCase):
     explicit opt-in that sends the key."""
 
     def test_scram_no_scram_server_raises_without_sending_key(self):
-        c = _CallStubClient(['API_KEY_PLAIN'])
+        c = _CallStubClient(["API_KEY_PLAIN"])
         with self.assertRaises(ValueError) as ctx:
             auth_api_key.api_key_authenticate(
-                c, auth_api_key.APIKeyAuthMech.SCRAM, 'user', _RAW_KEY,
+                c,
+                auth_api_key.APIKeyAuthMech.SCRAM,
+                "user",
+                _RAW_KEY,
             )
         # Points the caller at the explicit opt-in...
-        self.assertIn('PLAIN', str(ctx.exception))
+        self.assertIn("PLAIN", str(ctx.exception))
         # ...and, security-critical, the key was NOT transmitted before the refusal.
-        self.assertNotIn('auth.login_ex', c.calls)
+        self.assertNotIn("auth.login_ex", c.calls)
 
     def test_explicit_plain_sends_key(self):
-        c = _CallStubClient(['API_KEY_PLAIN'])
+        c = _CallStubClient(["API_KEY_PLAIN"])
         auth_api_key.api_key_authenticate(
-            c, auth_api_key.APIKeyAuthMech.PLAIN, 'user', _RAW_KEY,
+            c,
+            auth_api_key.APIKeyAuthMech.PLAIN,
+            "user",
+            _RAW_KEY,
         )
         # The explicit opt-in completes the plaintext exchange.
-        self.assertIn('auth.login_ex', c.calls)
+        self.assertIn("auth.login_ex", c.calls)
 
     def test_legacy_endpoint_uses_plain_path(self):
         # LegacyClient authenticates via PLAIN over the legacy /websocket endpoint.
-        c = _CallStubClient(['API_KEY_PLAIN'])
+        c = _CallStubClient(["API_KEY_PLAIN"])
         auth_api_key.api_key_authenticate(
-            c, auth_api_key.APIKeyAuthMech.PLAIN, 'user', _RAW_KEY,
+            c,
+            auth_api_key.APIKeyAuthMech.PLAIN,
+            "user",
+            _RAW_KEY,
             use_legacy_endpoint=True,
         )
-        self.assertIn('auth.login_with_api_key', c.calls)
+        self.assertIn("auth.login_with_api_key", c.calls)
 
     def test_jsonrpc_login_defaults_to_scram(self):
         # Lock the security-relevant default: API-key login must default to SCRAM, never a
         # mechanism that could transmit the key in plaintext.
         import inspect
         from truenas_api_client import JSONRPCClient
+
         sig = inspect.signature(JSONRPCClient.login_with_api_key)
         self.assertEqual(
-            sig.parameters['auth_mechanism'].default,
+            sig.parameters["auth_mechanism"].default,
             auth_api_key.APIKeyAuthMech.SCRAM,
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

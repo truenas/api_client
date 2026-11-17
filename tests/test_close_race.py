@@ -5,6 +5,7 @@ WebSocketApp.close() in websocket-client 1.9.1 reads self.sock after the close
 handshake, but the run_forever thread's teardown() clears self.sock concurrently,
 raising AttributeError (github.com/websocket-client/websocket-client/issues/1056).
 """
+
 import unittest
 
 from websocket import WebSocketApp
@@ -53,7 +54,7 @@ class _BrokenApp:
 class TestCloseRace(unittest.TestCase):
     def test_close_survives_teardown_race(self):
         """Replays the race against the installed websocket-client version."""
-        app = WebSocketApp('ws://127.0.0.1/api/current')
+        app = WebSocketApp("ws://127.0.0.1/api/current")
         app.sock = _RacingSock(app)  # type: ignore[assignment]
         client = _ClientStub()
         ws = _bare(WSClient, app=app, client=client)
@@ -73,5 +74,5 @@ class TestCloseRace(unittest.TestCase):
         self.assertEqual(client.close_codes, [STATUS_NORMAL])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

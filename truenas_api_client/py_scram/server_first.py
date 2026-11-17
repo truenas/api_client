@@ -4,22 +4,27 @@
 from base64 import b64encode, b64decode
 
 from .scram_crypto import (
-    CryptoDatum, generate_nonce, SCRAM_MAX_ITERS, SCRAM_MIN_ITERS, SCRAM_NONCE_SIZE, SCRAM_MAX_SALT_SZ,
+    CryptoDatum,
+    generate_nonce,
+    SCRAM_MAX_ITERS,
+    SCRAM_MIN_ITERS,
+    SCRAM_NONCE_SIZE,
+    SCRAM_MAX_SALT_SZ,
 )
 from .client_first import ClientFirstMessage
 from .error import ScramError, SCRAM_E_INVALID_REQUEST
 
 
-__all__ = ['ServerFirstMessage']
+__all__ = ["ServerFirstMessage"]
 
 
 class ServerFirstMessage:
-    __rfc_str = '<UNINITIALIZED>'
+    __rfc_str = "<UNINITIALIZED>"
 
     def __generate_rfc_string(self):
         nonce_b64 = b64encode(self.nonce).decode()
         salt_b64 = b64encode(self.salt).decode()
-        return f'r={nonce_b64},s={salt_b64},i={self.iterations}'
+        return f"r={nonce_b64},s={salt_b64},i={self.iterations}"
 
     def __init__(
         self,
@@ -31,10 +36,12 @@ class ServerFirstMessage:
     ):
         # Check for mutually exclusive parameters
         if rfc_string and client_first:
-            raise ValueError('Cannot specify both rfc_string and client_first parameters')
+            raise ValueError(
+                "Cannot specify both rfc_string and client_first parameters"
+            )
 
         if not rfc_string and not client_first:
-            raise ValueError('Must specify either rfc_string or client_first parameter')
+            raise ValueError("Must specify either rfc_string or client_first parameter")
 
         if rfc_string:
             # Parse from RFC string
@@ -42,13 +49,13 @@ class ServerFirstMessage:
         else:
             # Create new message from parameters
             if not isinstance(client_first, ClientFirstMessage):
-                raise TypeError('client_first must be a ClientFirstMessage instance')
+                raise TypeError("client_first must be a ClientFirstMessage instance")
 
             if not isinstance(salt, CryptoDatum):
-                raise TypeError('salt must be a CryptoDatum instance')
+                raise TypeError("salt must be a CryptoDatum instance")
 
             if not isinstance(iterations, int):
-                raise TypeError('iterations must be an integer')
+                raise TypeError("iterations must be an integer")
 
             # Generate server nonce and combine with client nonce
             server_nonce = generate_nonce()
@@ -63,9 +70,9 @@ class ServerFirstMessage:
         """Parse ServerFirstMessage from RFC 5802 formatted string.
         Format: r=<nonce>,s=<salt>,i=<iterations>
         """
-        parts = rfc_string.split(',')
+        parts = rfc_string.split(",")
         if len(parts) != 3:
-            raise ValueError('Invalid server first message format')
+            raise ValueError("Invalid server first message format")
 
         nonce_b64 = None
         salt_b64 = None
@@ -73,51 +80,50 @@ class ServerFirstMessage:
 
         for part in parts:
             if not part:
-                raise ValueError('Invalid server first message format')
+                raise ValueError("Invalid server first message format")
 
-            key, _, value = part.partition('=')
+            key, _, value = part.partition("=")
             if not value:
-                raise ValueError('Invalid server first message format')
+                raise ValueError("Invalid server first message format")
 
-            if key == 'r':
+            if key == "r":
                 nonce_b64 = value
-            elif key == 's':
+            elif key == "s":
                 salt_b64 = value
-            elif key == 'i':
+            elif key == "i":
                 try:
                     iterations = int(value)
                 except ValueError:
-                    raise ValueError('Invalid iteration count in server first message')
+                    raise ValueError("Invalid iteration count in server first message")
             else:
-                raise ValueError(f'Unknown key in server first message: {key}')
+                raise ValueError(f"Unknown key in server first message: {key}")
 
         if nonce_b64 is None or salt_b64 is None or iterations is None:
-            raise ValueError('Missing required fields in server first message')
+            raise ValueError("Missing required fields in server first message")
 
         # Validate iterations against the same bounds as the C parser (scram_parse_iteration_cnt).
         if iterations < SCRAM_MIN_ITERS or iterations > SCRAM_MAX_ITERS:
             raise ScramError(
-                f'{iterations}: iteration count outside [{SCRAM_MIN_ITERS}, {SCRAM_MAX_ITERS}]',
-                SCRAM_E_INVALID_REQUEST
+                f"{iterations}: iteration count outside [{SCRAM_MIN_ITERS}, {SCRAM_MAX_ITERS}]",
+                SCRAM_E_INVALID_REQUEST,
             )
 
         try:
             nonce_bytes = b64decode(nonce_b64)
             salt_bytes = b64decode(salt_b64)
         except Exception as e:
-            raise ValueError(f'Invalid base64 encoding in server first message: {e}')
+            raise ValueError(f"Invalid base64 encoding in server first message: {e}")
 
         # The C parser accepts only a 32- or 64-byte nonce and caps the salt length; match both
         # (scram_parse_nonce / scram_parse_b64_datum in scram_attr_parse.c).
         if len(nonce_bytes) not in (SCRAM_NONCE_SIZE, SCRAM_NONCE_SIZE * 2):
             raise ScramError(
-                f'{len(nonce_bytes)}: unexpected nonce size',
-                SCRAM_E_INVALID_REQUEST
+                f"{len(nonce_bytes)}: unexpected nonce size", SCRAM_E_INVALID_REQUEST
             )
         if len(salt_bytes) > SCRAM_MAX_SALT_SZ:
             raise ScramError(
-                f'{len(salt_bytes)}: salt exceeds maximum of {SCRAM_MAX_SALT_SZ}',
-                SCRAM_E_INVALID_REQUEST
+                f"{len(salt_bytes)}: salt exceeds maximum of {SCRAM_MAX_SALT_SZ}",
+                SCRAM_E_INVALID_REQUEST,
             )
 
         self.__nonce = CryptoDatum(nonce_bytes)

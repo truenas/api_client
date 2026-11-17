@@ -20,8 +20,7 @@ with Client("wss://example.internal/api/current") as c:
     ds = c.call("pool.dataset.create", {"name": DS_NAME, "share_type": "SMB"})
 
     # Create the actual SMB share for time machine purposes
-    c.call("sharing.smb.create", {
-        "path": ds["mountpoint"],
-        "name": SHARE_NAME,
-        "purpose": "TIMEMACHINE"
-    })
+    c.call(
+        "sharing.smb.create",
+        {"path": ds["mountpoint"], "name": SHARE_NAME, "purpose": "TIMEMACHINE"},
+    )
