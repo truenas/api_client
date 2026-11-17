@@ -80,7 +80,9 @@ class TestClientFirstMessageCompatibility(unittest.TestCase):
         username = "testuser"
         api_key_id = 12345
 
-        c_msg = truenas_pyscram.ClientFirstMessage(username=username, api_key_id=api_key_id)
+        c_msg = truenas_pyscram.ClientFirstMessage(
+            username=username, api_key_id=api_key_id
+        )
         py_msg = py_scram.ClientFirstMessage(username=username, api_key_id=api_key_id)
 
         self.assertEqual(c_msg.username, py_msg.username)
@@ -114,7 +116,9 @@ class TestClientFirstMessageCompatibility(unittest.TestCase):
         username = "testuser"
         api_key_id = 789
 
-        c_msg = truenas_pyscram.ClientFirstMessage(username=username, api_key_id=api_key_id)
+        c_msg = truenas_pyscram.ClientFirstMessage(
+            username=username, api_key_id=api_key_id
+        )
         py_msg = py_scram.ClientFirstMessage(username=username, api_key_id=api_key_id)
 
         c_str = str(c_msg)
@@ -171,14 +175,10 @@ class TestServerFirstMessageCompatibility(unittest.TestCase):
 
         # Create server first messages
         c_server_first = truenas_pyscram.ServerFirstMessage(
-            client_first=c_client_first,
-            salt=self.salt,
-            iterations=self.iterations
+            client_first=c_client_first, salt=self.salt, iterations=self.iterations
         )
         py_server_first = py_scram.ServerFirstMessage(
-            client_first=py_client_first,
-            salt=self.py_salt,
-            iterations=self.iterations
+            client_first=py_client_first, salt=self.py_salt, iterations=self.iterations
         )
 
         # Iterations should match
@@ -246,9 +246,7 @@ class TestCryptoFunctionsCompatibility(unittest.TestCase):
         # We test indirectly through auth data generation
         # For now, we'll test the pure Python implementation
         result = py_scram.scram_hi(
-            py_scram.CryptoDatum(key_data),
-            py_scram.CryptoDatum(salt),
-            iterations
+            py_scram.CryptoDatum(key_data), py_scram.CryptoDatum(salt), iterations
         )
 
         # Result should be 64 bytes (SHA-512)
@@ -271,8 +269,7 @@ class TestCryptoFunctionsCompatibility(unittest.TestCase):
         data = b"test_data"
 
         result = py_scram.scram_hmac_sha512(
-            py_scram.CryptoDatum(key),
-            py_scram.CryptoDatum(data)
+            py_scram.CryptoDatum(key), py_scram.CryptoDatum(data)
         )
 
         # Result should be 64 bytes (SHA-512)
@@ -292,7 +289,9 @@ class TestFullAuthenticationFlowCompatibility(unittest.TestCase):
         self.py_auth_data = py_scram.ScramAuthData(
             salt=py_scram.CryptoDatum(bytes(self.c_auth_data.salt)),
             iterations=self.c_auth_data.iterations,
-            salted_password=py_scram.CryptoDatum(bytes(self.c_auth_data.salted_password)),
+            salted_password=py_scram.CryptoDatum(
+                bytes(self.c_auth_data.salted_password)
+            ),
             client_key=py_scram.CryptoDatum(bytes(self.c_auth_data.client_key)),
             stored_key=py_scram.CryptoDatum(bytes(self.c_auth_data.stored_key)),
             server_key=py_scram.CryptoDatum(bytes(self.c_auth_data.server_key)),
@@ -309,7 +308,7 @@ class TestFullAuthenticationFlowCompatibility(unittest.TestCase):
         c_server_first = truenas_pyscram.ServerFirstMessage(
             client_first=c_client_first,
             salt=self.c_auth_data.salt,
-            iterations=self.c_auth_data.iterations
+            iterations=self.c_auth_data.iterations,
         )
 
         # Parse server first in Python implementation
@@ -332,12 +331,12 @@ class TestVerificationFunctionCompatibility(unittest.TestCase):
     def test_verification_functions_exist(self):
         """Test that both implementations have verification functions."""
         # C extension functions
-        self.assertTrue(hasattr(truenas_pyscram, 'verify_client_final_message'))
-        self.assertTrue(hasattr(truenas_pyscram, 'verify_server_signature'))
+        self.assertTrue(hasattr(truenas_pyscram, "verify_client_final_message"))
+        self.assertTrue(hasattr(truenas_pyscram, "verify_server_signature"))
 
         # Python implementation functions
-        self.assertTrue(hasattr(py_scram, 'verify_client_final_message'))
-        self.assertTrue(hasattr(py_scram, 'verify_server_signature'))
+        self.assertTrue(hasattr(py_scram, "verify_client_final_message"))
+        self.assertTrue(hasattr(py_scram, "verify_server_signature"))
 
     def test_verify_server_signature_with_c_messages(self):
         """Test Python verify_server_signature with C extension messages."""
@@ -346,20 +345,20 @@ class TestVerificationFunctionCompatibility(unittest.TestCase):
         server_first = truenas_pyscram.ServerFirstMessage(
             client_first=client_first,
             salt=self.auth_data.salt,
-            iterations=self.auth_data.iterations
+            iterations=self.auth_data.iterations,
         )
         client_final = truenas_pyscram.ClientFinalMessage(
             client_first=client_first,
             server_first=server_first,
             client_key=self.auth_data.client_key,
-            stored_key=self.auth_data.stored_key
+            stored_key=self.auth_data.stored_key,
         )
         server_final = truenas_pyscram.ServerFinalMessage(
             client_first=client_first,
             server_first=server_first,
             client_final=client_final,
             stored_key=self.auth_data.stored_key,
-            server_key=self.auth_data.server_key
+            server_key=self.auth_data.server_key,
         )
 
         # Parse into Python implementation types
@@ -371,7 +370,7 @@ class TestVerificationFunctionCompatibility(unittest.TestCase):
             server_first=server_first,
             client_final=client_final,
             server_final=server_final,
-            server_key=self.auth_data.server_key
+            server_key=self.auth_data.server_key,
         )
 
 
@@ -389,8 +388,8 @@ class TestChannelBindingCompatibility(unittest.TestCase):
             with self.subTest(cert=name):
                 p = bytes(py_scram.compute_tls_server_end_point(cert_der))
                 c = bytes(truenas_pyscram.compute_tls_server_end_point(cert_der))
-                self.assertEqual(p, expected, f'{name}: py_scram diverged')
-                self.assertEqual(c, expected, f'{name}: C extension diverged')
+                self.assertEqual(p, expected, f"{name}: py_scram diverged")
+                self.assertEqual(c, expected, f"{name}: C extension diverged")
 
     def test_undefined_signature_algorithm_rejected_by_both(self):
         """EdDSA (no single signature hash) is rejected by py_scram and the C
@@ -403,11 +402,14 @@ class TestChannelBindingCompatibility(unittest.TestCase):
                     truenas_pyscram.compute_tls_server_end_point(cert_der)
 
     def test_cb_name_constant_parity(self):
-        self.assertEqual(py_scram.CB_TLS_SERVER_END_POINT, truenas_pyscram.CB_TLS_SERVER_END_POINT)
+        self.assertEqual(
+            py_scram.CB_TLS_SERVER_END_POINT, truenas_pyscram.CB_TLS_SERVER_END_POINT
+        )
 
     def _build_py_bound_exchange(self, auth, binding):
         py_cf = py_scram.ClientFirstMessage(
-            username="u", api_key_id=5,
+            username="u",
+            api_key_id=5,
             channel_binding_type=py_scram.CB_TLS_SERVER_END_POINT,
         )
         py_sf = py_scram.ServerFirstMessage(
@@ -416,7 +418,8 @@ class TestChannelBindingCompatibility(unittest.TestCase):
             iterations=auth.iterations,
         )
         py_fin = py_scram.ClientFinalMessage(
-            client_first=py_cf, server_first=py_sf,
+            client_first=py_cf,
+            server_first=py_sf,
             client_key=py_scram.CryptoDatum(bytes(auth.client_key)),
             stored_key=py_scram.CryptoDatum(bytes(auth.stored_key)),
             channel_binding=binding,
@@ -430,8 +433,12 @@ class TestChannelBindingCompatibility(unittest.TestCase):
         py_cf, py_sf, py_fin = self._build_py_bound_exchange(auth, binding)
 
         # c= must be base64("p=tls-server-end-point,," + binding).
-        c_attr = next(part[2:] for part in str(py_fin).split(",") if part.startswith("c="))
-        self.assertEqual(c_attr, b64encode(b"p=tls-server-end-point,," + bytes(binding)).decode())
+        c_attr = next(
+            part[2:] for part in str(py_fin).split(",") if part.startswith("c=")
+        )
+        self.assertEqual(
+            c_attr, b64encode(b"p=tls-server-end-point,," + bytes(binding)).decode()
+        )
 
         # The C-extension server verifier accepts the py-built bound final.
         truenas_pyscram.verify_client_final_message(
@@ -439,7 +446,9 @@ class TestChannelBindingCompatibility(unittest.TestCase):
             truenas_pyscram.ServerFirstMessage(rfc_string=str(py_sf)),
             truenas_pyscram.ClientFinalMessage(rfc_string=str(py_fin)),
             auth.stored_key,
-            channel_binding=truenas_pyscram.compute_tls_server_end_point(_CB_TEST_CERT_DER),
+            channel_binding=truenas_pyscram.compute_tls_server_end_point(
+                _CB_TEST_CERT_DER
+            ),
             require_channel_binding=True,
         )
 
@@ -459,5 +468,5 @@ class TestChannelBindingCompatibility(unittest.TestCase):
             )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

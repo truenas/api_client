@@ -9,24 +9,24 @@ from ssl import RAND_bytes
 
 
 __all__ = [
-    'CryptoDatum',
-    'generate_nonce',
-    'scram_hi',
-    'scram_h',
-    'scram_hmac_sha512',
-    'scram_create_client_key',
-    'scram_create_server_key',
-    'scram_create_stored_key',
-    'scram_xor_bytes',
-    'scram_constant_time_compare',
-    'scram_create_auth_message',
-    'generate_scram_auth_data',
-    'SCRAM_MAX_ITERS',
-    'SCRAM_MIN_ITERS',
-    'SCRAM_DEFAULT_ITERS',
-    'SCRAM_NONCE_SIZE',
-    'SCRAM_MAX_SALT_SZ',
-    'SHA512_DIGEST_SIZE',
+    "CryptoDatum",
+    "generate_nonce",
+    "scram_hi",
+    "scram_h",
+    "scram_hmac_sha512",
+    "scram_create_client_key",
+    "scram_create_server_key",
+    "scram_create_stored_key",
+    "scram_xor_bytes",
+    "scram_constant_time_compare",
+    "scram_create_auth_message",
+    "generate_scram_auth_data",
+    "SCRAM_MAX_ITERS",
+    "SCRAM_MIN_ITERS",
+    "SCRAM_DEFAULT_ITERS",
+    "SCRAM_NONCE_SIZE",
+    "SCRAM_MAX_SALT_SZ",
+    "SHA512_DIGEST_SIZE",
 ]
 
 
@@ -35,18 +35,23 @@ SCRAM_MAX_ITERS = 5000000
 SCRAM_MIN_ITERS = 50000
 SCRAM_DEFAULT_ITERS = 500000
 SCRAM_NONCE_SIZE = 32
-SCRAM_MAX_SALT_SZ = 1024  # salt length cap enforced by the C parser (scram_attr_parse.c)
-SHA512_DIGEST_SIZE = 64   # SHA-512 output length; SCRAM proofs/signatures/keys are this size
+SCRAM_MAX_SALT_SZ = (
+    1024  # salt length cap enforced by the C parser (scram_attr_parse.c)
+)
+SHA512_DIGEST_SIZE = (
+    64  # SHA-512 output length; SCRAM proofs/signatures/keys are this size
+)
 
 
 class CryptoDatum(bytes):
     """Wrapper around bytes object to provide consistency with CryptoDatum type
     in the cpython extension."""
+
     def __new__(cls, value):
         return super().__new__(cls, value)
 
     def __repr__(self):
-        return f'CryptoDatum({hex(id(self))})'
+        return f"CryptoDatum({hex(id(self))})"
 
 
 def generate_nonce() -> CryptoDatum:
@@ -81,19 +86,21 @@ def scram_hi(key: CryptoDatum, salt: CryptoDatum, iterations: int) -> CryptoDatu
         ValueError: If parameters are invalid or iterations out of range
     """
     if not isinstance(key, (CryptoDatum, bytes)) or len(key) == 0:
-        raise ValueError('Invalid key parameter')
+        raise ValueError("Invalid key parameter")
 
     if not isinstance(salt, (CryptoDatum, bytes)) or len(salt) == 0:
-        raise ValueError('Invalid salt parameter')
+        raise ValueError("Invalid salt parameter")
 
     if not isinstance(iterations, int):
-        raise TypeError('Iterations must be an integer')
+        raise TypeError("Iterations must be an integer")
 
     if iterations < SCRAM_MIN_ITERS or iterations > SCRAM_MAX_ITERS:
-        raise ValueError(f'Iterations must be between {SCRAM_MIN_ITERS} and {SCRAM_MAX_ITERS}')
+        raise ValueError(
+            f"Iterations must be between {SCRAM_MIN_ITERS} and {SCRAM_MAX_ITERS}"
+        )
 
     # PBKDF2-HMAC-SHA512
-    derived_key = hashlib.pbkdf2_hmac('sha512', bytes(key), bytes(salt), iterations)
+    derived_key = hashlib.pbkdf2_hmac("sha512", bytes(key), bytes(salt), iterations)
     return CryptoDatum(derived_key)
 
 
@@ -115,7 +122,7 @@ def scram_h(data: CryptoDatum) -> CryptoDatum:
         ValueError: If data is invalid
     """
     if not isinstance(data, (CryptoDatum, bytes)) or len(data) == 0:
-        raise ValueError('Invalid data parameter')
+        raise ValueError("Invalid data parameter")
 
     digest = hashlib.sha512(bytes(data)).digest()
     return CryptoDatum(digest)
@@ -140,10 +147,10 @@ def scram_hmac_sha512(key: CryptoDatum, data: CryptoDatum) -> CryptoDatum:
         ValueError: If parameters are invalid
     """
     if not isinstance(key, (CryptoDatum, bytes)) or len(key) == 0:
-        raise ValueError('Invalid key parameter')
+        raise ValueError("Invalid key parameter")
 
     if not isinstance(data, (CryptoDatum, bytes)) or len(data) == 0:
-        raise ValueError('Invalid data parameter')
+        raise ValueError("Invalid data parameter")
 
     result = hmac.digest(bytes(key), bytes(data), hashlib.sha512)
     return CryptoDatum(result)
@@ -166,7 +173,7 @@ def scram_create_client_key(salted_password: CryptoDatum) -> CryptoDatum:
     Raises:
         ValueError: If salted_password is invalid
     """
-    client_key_string = CryptoDatum(b'Client Key')
+    client_key_string = CryptoDatum(b"Client Key")
     return scram_hmac_sha512(salted_password, client_key_string)
 
 
@@ -187,7 +194,7 @@ def scram_create_server_key(salted_password: CryptoDatum) -> CryptoDatum:
     Raises:
         ValueError: If salted_password is invalid
     """
-    server_key_string = CryptoDatum(b'Server Key')
+    server_key_string = CryptoDatum(b"Server Key")
     return scram_hmac_sha512(salted_password, server_key_string)
 
 
@@ -230,13 +237,13 @@ def scram_xor_bytes(a: CryptoDatum, b: CryptoDatum) -> CryptoDatum:
         ValueError: If parameters are invalid or sizes don't match
     """
     if not isinstance(a, (CryptoDatum, bytes)) or len(a) == 0:
-        raise ValueError('Invalid first parameter')
+        raise ValueError("Invalid first parameter")
 
     if not isinstance(b, (CryptoDatum, bytes)) or len(b) == 0:
-        raise ValueError('Invalid second parameter')
+        raise ValueError("Invalid second parameter")
 
     if len(a) != len(b):
-        raise ValueError('Byte array sizes do not match')
+        raise ValueError("Byte array sizes do not match")
 
     result = bytes(x ^ y for x, y in zip(bytes(a), bytes(b)))
     return CryptoDatum(result)
@@ -261,19 +268,17 @@ def scram_constant_time_compare(a: CryptoDatum, b: CryptoDatum) -> bool:
         ValueError: If parameters are invalid
     """
     if not isinstance(a, (CryptoDatum, bytes)) or len(a) == 0:
-        raise ValueError('Invalid first parameter')
+        raise ValueError("Invalid first parameter")
 
     if not isinstance(b, (CryptoDatum, bytes)) or len(b) == 0:
-        raise ValueError('Invalid second parameter')
+        raise ValueError("Invalid second parameter")
 
     # hmac.compare_digest handles size mismatches gracefully and securely
     return hmac.compare_digest(bytes(a), bytes(b))
 
 
 def scram_create_auth_message(
-    client_first_bare: str,
-    server_first_msg: str,
-    client_final_without_proof: str
+    client_first_bare: str, server_first_msg: str, client_final_without_proof: str
 ) -> str:
     """
     Create SCRAM authentication message as specified in RFC 5802.
@@ -296,15 +301,18 @@ def scram_create_auth_message(
         ValueError: If any parameter is invalid
     """
     if not isinstance(client_first_bare, str) or not client_first_bare:
-        raise ValueError('Invalid client_first_bare parameter')
+        raise ValueError("Invalid client_first_bare parameter")
 
     if not isinstance(server_first_msg, str) or not server_first_msg:
-        raise ValueError('Invalid server_first_msg parameter')
+        raise ValueError("Invalid server_first_msg parameter")
 
-    if not isinstance(client_final_without_proof, str) or not client_final_without_proof:
-        raise ValueError('Invalid client_final_without_proof parameter')
+    if (
+        not isinstance(client_final_without_proof, str)
+        or not client_final_without_proof
+    ):
+        raise ValueError("Invalid client_final_without_proof parameter")
 
-    return f'{client_first_bare},{server_first_msg},{client_final_without_proof}'
+    return f"{client_first_bare},{server_first_msg},{client_final_without_proof}"
 
 
 def generate_scram_auth_data(
@@ -335,16 +343,18 @@ def generate_scram_auth_data(
     from .common import ScramAuthData
 
     if not isinstance(salted_password, CryptoDatum):
-        raise TypeError('salted_password must be a CryptoDatum instance')
+        raise TypeError("salted_password must be a CryptoDatum instance")
 
     if not isinstance(salt, CryptoDatum):
-        raise TypeError('salt must be a CryptoDatum instance')
+        raise TypeError("salt must be a CryptoDatum instance")
 
     if not isinstance(iterations, int):
-        raise TypeError('iterations must be an integer')
+        raise TypeError("iterations must be an integer")
 
     if iterations < SCRAM_MIN_ITERS or iterations > SCRAM_MAX_ITERS:
-        raise ValueError(f'iterations must be between {SCRAM_MIN_ITERS} and {SCRAM_MAX_ITERS}')
+        raise ValueError(
+            f"iterations must be between {SCRAM_MIN_ITERS} and {SCRAM_MAX_ITERS}"
+        )
 
     # Generate client key and stored key
     client_key = scram_create_client_key(salted_password)

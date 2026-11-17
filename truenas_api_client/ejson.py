@@ -15,6 +15,7 @@ Example::
     >>> deserialized = loads(serialized)
 
 """
+
 import calendar
 from datetime import date, datetime, time, timedelta, timezone
 from ipaddress import IPv4Interface, IPv6Interface
@@ -47,22 +48,23 @@ class JSONEncoder(json.JSONEncoder):
     the JSON array is undefined.
 
     """
+
     def default(self, obj):
         if type(obj) is date:
-            return {'$type': 'date', '$value': obj.isoformat()}
+            return {"$type": "date", "$value": obj.isoformat()}
         elif type(obj) is datetime:
             if obj.tzinfo is not None:
                 obj = obj.astimezone(timezone.utc)
             # Total milliseconds since EPOCH
-            return {'$date': int(calendar.timegm(obj.timetuple()) * 1000)}
+            return {"$date": int(calendar.timegm(obj.timetuple()) * 1000)}
         elif type(obj) is time:
-            return {'$time': str(obj)}
+            return {"$time": str(obj)}
         elif isinstance(obj, (set, frozenset)):
-            return {'$set': list(obj)}
+            return {"$set": list(obj)}
         elif isinstance(obj, IPv4Interface):
-            return {'$ipv4_interface': str(obj)}
+            return {"$ipv4_interface": str(obj)}
         elif isinstance(obj, IPv6Interface):
-            return {'$ipv6_interface': str(obj)}
+            return {"$ipv6_interface": str(obj)}
         elif BaseModel is not None and isinstance(obj, BaseModel):
             return obj.model_dump(warnings=False, by_alias=True)
         return super(JSONEncoder, self).default(obj)
@@ -74,35 +76,34 @@ def object_hook(obj: dict):
     Passed as a kwarg to a JSON deserialization function like `json.dump()`.
 
     """
-    error_key = '<unknown>'
+    error_key = "<unknown>"
     try:
         obj_len = len(obj)
         if obj_len == 1:
             error_key = list(obj.keys())[0]
-            if '$date' in obj:
+            if "$date" in obj:
                 # floor-divide for whole seconds; the remainder is added as milliseconds.
                 # (fromtimestamp already accounts for the fraction, so true division would
                 # count the sub-second part twice.)
-                return (
-                    datetime.fromtimestamp(obj['$date'] // 1000, tz=timezone.utc) +
-                    timedelta(milliseconds=obj['$date'] % 1000)
-                )
-            if '$time' in obj:
+                return datetime.fromtimestamp(
+                    obj["$date"] // 1000, tz=timezone.utc
+                ) + timedelta(milliseconds=obj["$date"] % 1000)
+            if "$time" in obj:
                 # inverse of the encoder's str(time), which is ISO format and may carry a
                 # fractional-second (.ffffff) or UTC offset that the old int-split couldn't parse.
-                return time.fromisoformat(obj['$time'])
-            if '$set' in obj:
-                return set(obj['$set'])
-            if '$ipv4_interface' in obj:
-                return IPv4Interface(obj['$ipv4_interface'])
-            if '$ipv6_interface' in obj:
-                return IPv6Interface(obj['$ipv6_interface'])
-        if obj_len == 2 and '$type' in obj and '$value' in obj:
-            error_key = obj['$type']
-            if obj['$type'] == 'date':
-                return date(*[int(i) for i in obj['$value'].split('-')])
+                return time.fromisoformat(obj["$time"])
+            if "$set" in obj:
+                return set(obj["$set"])
+            if "$ipv4_interface" in obj:
+                return IPv4Interface(obj["$ipv4_interface"])
+            if "$ipv6_interface" in obj:
+                return IPv6Interface(obj["$ipv6_interface"])
+        if obj_len == 2 and "$type" in obj and "$value" in obj:
+            error_key = obj["$type"]
+            if obj["$type"] == "date":
+                return date(*[int(i) for i in obj["$value"].split("-")])
     except Exception as e:
-        raise EJSONDecodeError(f'Error parsing {error_key}: {e}')
+        raise EJSONDecodeError(f"Error parsing {error_key}: {e}")
     return obj
 
 

@@ -76,9 +76,7 @@ client = TNScramClient(raw_key_material="password123")
 
 # Or with pre-computed keys
 client = TNScramClient(
-    client_key=client_key,
-    stored_key=stored_key,
-    server_key=server_key
+    client_key=client_key, stored_key=stored_key, server_key=server_key
 )
 
 # Follow SCRAM authentication flow
