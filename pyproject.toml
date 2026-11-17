@@ -28,3 +28,10 @@ include = ["truenas_api_client*"]
 
 [tool.mypy]
 check_untyped_defs = true
+
+[tool.ruff.lint]
+select = ["E", "W", "F"]
+ignore = ["F403", "F405"]
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 120
