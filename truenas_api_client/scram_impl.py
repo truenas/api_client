@@ -186,7 +186,7 @@ class TNScramClient:
         self.api_key_id = api_key_id
 
         # These will be populated during the authentication flow
-        self.client_first_message = None
+        self.client_first_message: truenas_pyscram.ClientFirstMessage | None = None
         self.server_first_message = None
         self.client_final_message = None
         self.server_final_message = None

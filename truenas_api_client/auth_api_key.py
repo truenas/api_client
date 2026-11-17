@@ -5,15 +5,19 @@ from configparser import ConfigParser, Error as ConfigParserError
 from dataclasses import dataclass
 from enum import StrEnum
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, TypedDict
+from typing import Any, Protocol, TypedDict
 
 from .ejson import loads
 from .exc import ClientException
 from .scram_impl import CB_TLS_SERVER_END_POINT, CryptoDatum, TNScramClient, compute_tls_server_end_point
 
-if TYPE_CHECKING:
-    from . import JSONRPCClient
-    from .legacy import LegacyClient
+
+class Caller(Protocol):
+    """Any client with a call method, such as JSONRPCClient or LegacyClient."""
+
+    def call(self, method: str, *params: Any) -> Any:
+        ...
+
 
 # Raw API keys have the format: {api_key_id}-{raw_key_material}
 # Example: 1-uz8DhKHFhRIUQIvjzabPYtpy5wf1DJ3ZBLlDgNVhRAFT7Y6pJGUlm0n3apwxWEU4
@@ -209,7 +213,7 @@ def _raise_for_api_key_response(resp: dict) -> None:
             raise ValueError(f'{other}: unexpected server response')
 
 
-def _resolve_channel_binding(c: 'JSONRPCClient | LegacyClient', channel_binding: bool) -> CryptoDatum | None:
+def _resolve_channel_binding(c: object, channel_binding: bool) -> CryptoDatum | None:
     """Resolve the SCRAM channel binding to use for the current connection.
 
     Returns the RFC 5929 ``tls-server-end-point`` binding for a TLS (``wss://``)
@@ -256,7 +260,7 @@ def _resolve_channel_binding(c: 'JSONRPCClient | LegacyClient', channel_binding:
 
 
 def api_key_authenticate(
-    c: 'JSONRPCClient | LegacyClient',
+    c: Caller,
     auth_mechanism: APIKeyAuthMech,
     username: str,
     key_in: str | None,
