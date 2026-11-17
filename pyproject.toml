@@ -7,7 +7,7 @@ name = "truenas_api_client"
 description = "TrueNAS API client"
 requires-python = ">=3.10"
 license = {text = "LGPLv3"}
-version = "28.0.0.dev0"
+version = "27.1.0.dev0"
 dependencies = ["websocket-client"]
 
 [project.optional-dependencies]
