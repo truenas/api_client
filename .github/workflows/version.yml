@@ -1,0 +1,41 @@
+name: version
+
+on:
+  pull_request:
+    branches: [master, 'stable/[0-9]*', 'release/[0-9]*']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+    - run: pip install packaging
+    - name: Check the package version matches the branch
+      env:
+        BASE: ${{ github.base_ref }}
+      shell: python
+      run: |
+        import os, re, subprocess, sys, tomllib
+        from packaging.version import Version
+
+        v = Version(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])
+        base = os.environ["BASE"]
+        heads = subprocess.run(["git", "ls-remote", "--heads", "origin"], capture_output=True, text=True, check=True).stdout
+        branches = re.findall(r"refs/heads/(\S+)", heads)
+
+        if base.startswith("release/"):
+            ok = v == Version(base.removeprefix("release/"))
+        else:
+            if base == "master":
+                n = 1 + max(int(b[7:]) for b in branches if re.fullmatch(r"stable/\d+", b))
+            else:
+                n = int(base.removeprefix("stable/"))
+            finals = [Version(b[8:]) for b in branches if re.fullmatch(rf"release/{n}\.\d+\.\d+", b)]
+            ok = v.is_devrelease and v.major == n and all(v > f for f in finals)
+
+        if not ok:
+            sys.exit(f"Version {v} is wrong for {base}. See Package Versions in README.md.")
+        print(f"Version {v} is correct for {base}.")
