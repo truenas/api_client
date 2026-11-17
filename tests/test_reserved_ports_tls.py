@@ -26,7 +26,8 @@ class TestReservedPortsScheme(unittest.TestCase):
         """wss:// + reserved_ports raises rather than connecting in plaintext."""
         for cls in WS_CLIENT_CLASSES:
             with self.subTest(client=cls.__module__):
-                ws = cls('wss://nas.example.com/api/current', client=None, reserved_ports=True)
+                ws = cls('wss://nas.example.com/api/current', client=None,  # type: ignore[arg-type]
+                         reserved_ports=True)
                 with self.assertRaises(ClientException) as ctx:
                     ws.connect()
                 self.assertIn('reserved_ports', str(ctx.exception))
@@ -35,8 +36,8 @@ class TestReservedPortsScheme(unittest.TestCase):
         """The guard is purely by scheme, so verify_ssl=False does not let a wss:// URI through."""
         for cls in WS_CLIENT_CLASSES:
             with self.subTest(client=cls.__module__):
-                ws = cls('wss://nas.example.com/api/current', client=None, reserved_ports=True,
-                         verify_ssl=False)
+                ws = cls('wss://nas.example.com/api/current', client=None,  # type: ignore[arg-type]
+                         reserved_ports=True, verify_ssl=False)
                 with self.assertRaises(ClientException):
                     ws.connect()
 
@@ -44,7 +45,8 @@ class TestReservedPortsScheme(unittest.TestCase):
         """Any scheme other than ws:// (e.g. http://) is refused, not only wss://."""
         for cls in WS_CLIENT_CLASSES:
             with self.subTest(client=cls.__module__):
-                ws = cls('http://nas.example.com:6000/api/current', client=None, reserved_ports=True)
+                ws = cls('http://nas.example.com:6000/api/current', client=None,  # type: ignore[arg-type]
+                         reserved_ports=True)
                 with self.assertRaises(ClientException) as ctx:
                     ws.connect()
                 self.assertIn('reserved_ports', str(ctx.exception))
@@ -53,7 +55,8 @@ class TestReservedPortsScheme(unittest.TestCase):
         """ws:// + reserved_ports (the failover use case) is allowed through to the bind step."""
         for cls in WS_CLIENT_CLASSES:
             with self.subTest(client=cls.__module__):
-                ws = cls('ws://nas.example.com:6000/api/current', client=None, reserved_ports=True)
+                ws = cls('ws://nas.example.com:6000/api/current', client=None,  # type: ignore[arg-type]
+                         reserved_ports=True)
                 module = sys.modules[cls.__module__]
                 # Avoid real network I/O: fake the socket and stop at the bind step. If the guard
                 # wrongly rejected ws://, we'd see ClientException instead of _ReachedBind.

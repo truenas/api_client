@@ -9,6 +9,7 @@ import random
 import socket
 import ssl
 from threading import Event, Lock, Thread
+from typing import Any
 import time
 import urllib.parse
 import uuid
@@ -35,8 +36,8 @@ class WSClient:
         self.reserved_ports = reserved_ports
         self.verify_ssl = verify_ssl
 
-        self.socket = None
-        self.app = None
+        self.socket: Any = None
+        self.app: Any = None
 
     def connect(self):
         unix_socket_prefix = "ws+unix://"
@@ -220,20 +221,20 @@ class LegacyClient:
         if call_timeout is undefined:
             call_timeout = CALL_TIMEOUT
 
-        self._calls = {}
-        self._jobs = defaultdict(dict)
+        self._calls: dict[str, Call] = {}
+        self._jobs: defaultdict[Any, dict[str, Any]] = defaultdict(dict)
         # we use this dict as an ordered set because python stdlib has no ordered set
-        self._unclaimed_jobs = {}
+        self._unclaimed_jobs: dict[Any, None] = {}
         self._jobs_lock = Lock()
         self._jobs_watching = False
-        self._pings = {}
+        self._pings: dict[str, Event] = {}
         self._py_exceptions = py_exceptions
         self._log_py_exceptions = log_py_exceptions
         self._call_timeout = call_timeout
-        self._event_callbacks = defaultdict(list)
+        self._event_callbacks: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
         self._closed = Event()
         self._connected = Event()
-        self._connection_error = None
+        self._connection_error: str | None = None
         self._ws = WSClient(
             uri,
             client=self,
@@ -387,7 +388,7 @@ class LegacyClient:
         """
         Method to process the received job events.
         """
-        fields = message.get('fields')
+        fields: Any = message.get('fields')
         job_id = fields['id']
         with self._jobs_lock:
             if fields:
@@ -587,4 +588,4 @@ class LegacyClient:
         self._ws.close()
         # Wait for websocketclient thread to close
         self._closed.wait(1)
-        self._ws = None
+        del self._ws

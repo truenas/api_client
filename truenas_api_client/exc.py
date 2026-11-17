@@ -6,7 +6,7 @@ import errno
 from .jsonrpc import ErrorExtra, TruenasTraceback
 
 try:
-    from libzfs import Error as ZFSError  # pytype: disable=import-error
+    from libzfs import Error as ZFSError  # type: ignore[import-not-found]
 except ImportError:
     # this happens on our CI/CD runners as they do not install the py-libzfs module to run our api integration tests
     LIBZFS = False
@@ -60,6 +60,7 @@ class ErrnoMixin:
         for k, v in cls.__dict__.items():
             if k.startswith("E") and v == code:
                 return k
+        return None
 
 
 class ClientException(ErrnoMixin, Exception):
