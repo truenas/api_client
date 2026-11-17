@@ -94,7 +94,7 @@ class Client:
 
         """
         if uri is not None and uri.endswith('/websocket'):
-            client_class = LegacyClient
+            client_class: type[LegacyClient] | type[JSONRPCClient] = LegacyClient
         else:
             client_class = JSONRPCClient
 
@@ -568,7 +568,7 @@ class JSONRPCClient:
                                     if (call := self._calls.get(message_id)) is not None:
                                         if call.wants_job:
                                             with self._jobs_lock:
-                                                self._jobs.setdefault(params['id'], {})
+                                                self._jobs.setdefault(params['id'], {})  # type: ignore[typeddict-item]
                                                 self._unclaimed_jobs.pop(params['id'], None)
                                         call.result = params['id']
                                         call.job_id = params['id']
@@ -582,11 +582,11 @@ class JSONRPCClient:
                                 for event in self._event_callbacks[params['collection']]:
                                     self._run_callback(event, [params['msg'].upper()], params)
                     case 'notify_unsubscribed':
-                        params = message['params']
-                        if params['collection'] in self._event_callbacks:
-                            for event in self._event_callbacks[params['collection']]:
-                                if 'error' in params:
-                                    err = params['error']
+                        unsub_params = message['params']
+                        if unsub_params['collection'] in self._event_callbacks:
+                            for event in self._event_callbacks[unsub_params['collection']]:
+                                if 'error' in unsub_params:
+                                    err = unsub_params['error']
                                     event['error'] = reason if err and (reason := err['reason']) else err
                                 event['event'].set()
                     case _:
@@ -604,7 +604,7 @@ class JSONRPCClient:
                         else:
                             logger.error('Error setting client options: %r', self._set_options_call.error)
                     self._connected.set()
-                elif call := self._calls.get(message['id']):
+                elif message['id'] is not None and (call := self._calls.get(message['id'])):
                     if 'result' in message:
                         call.result = message['result']
                     if 'error' in message:
@@ -623,7 +623,7 @@ class JSONRPCClient:
                             error = self._parse_error_and_unpickle_exception(message['error'])[0]
                         except Exception:
                             logger.error('Unhandled exception in JSONRPCClient._parse_error', exc_info=True)
-                            error = None
+                            error = ClientException(f'Could not parse error from server: {message["error"]!r}')
 
                         if message['id'] is None:
                             logger.error('Received a global connection error: %r', error)
@@ -660,28 +660,28 @@ class JSONRPCClient:
         py_exception = None
         if self._py_exceptions and code in [JSONRPCError.INVALID_PARAMS, JSONRPCError.TRUENAS_CALL_ERROR]:
             data = error['data']
-            error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
+            exc = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
             if 'py_exception' in data:
                 try:
                     py_exception = pickle.loads(b64decode(data['py_exception']))
                 except Exception as e:
                     logger.warning("Error unpickling call exception: %r", e)
         elif code == JSONRPCError.INVALID_PARAMS:
-            error = ValidationErrors(error['data']['extra'])
+            exc = ValidationErrors(error['data']['extra'])
         elif code == JSONRPCError.TRUENAS_CALL_ERROR:
             data = error['data']
-            error = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
+            exc = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
         elif code == JSONRPCError.METHOD_NOT_FOUND:
-            error = ClientException(error.get('message') or code.name, ErrnoMixin.ENOMETHOD)
+            exc = ClientException(error.get('message') or code.name, ErrnoMixin.ENOMETHOD)
         else:
             if code == JSONRPCError.TRUENAS_TOO_MANY_CONCURRENT_CALLS:
                 logger.debug('A TRUENAS_TOO_MANY_CONCURRENT_CALLS error occurred. Currently running calls: %r', [
                     call.method for call in self._calls.values()
                 ])
 
-            error = ClientException(error.get('message') or code.name)
+            exc = ClientException(error.get('message') or code.name)
 
-        return error, py_exception
+        return exc, py_exception
 
     def _run_callback(self, event: _Payload, args: Iterable[str], kwargs: CollectionUpdateParams):
         """Call the passed `_Payload`'s callback function.
@@ -795,7 +795,7 @@ class JSONRPCClient:
                         del self._unclaimed_jobs[evicted]
                         self._jobs.pop(evicted, None)
                 job = self._jobs[job_id]
-                job.update(**fields)
+                job.update(fields)
                 if callable(job.get('__callback')):
                     Thread(target=job['__callback'], args=(job,), daemon=True).start()
                 if mtype == 'CHANGED' and job['state'] in ('SUCCESS', 'FAILED', 'ABORTED'):
@@ -825,7 +825,7 @@ class JSONRPCClient:
         if isinstance(e, ClientException) or (
             e.__module__ == "middlewared.service_exception" and e.__class__.__name__ == "CallError"
         ):
-            if e.errno == ClientException.ENOTAUTHENTICATED:
+            if getattr(e, 'errno', None) == ClientException.ENOTAUTHENTICATED:
                 return True
 
         return False
@@ -1449,7 +1449,7 @@ def main():
                 if args.number and number >= args.number:
                     event.set()
 
-            c.subscribe(args.event, cb, subscribe_payload)  # type: ignore (`LegacyClient` does not return `_Payload`)
+            c.subscribe(args.event, cb, subscribe_payload)
 
             if not event.wait(timeout=args.timeout):
                 sys.exit(1)

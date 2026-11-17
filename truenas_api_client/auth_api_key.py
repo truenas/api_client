@@ -12,7 +12,8 @@ from .exc import ClientException
 from .scram_impl import CB_TLS_SERVER_END_POINT, CryptoDatum, TNScramClient, compute_tls_server_end_point
 
 if TYPE_CHECKING:
-    from . import Client
+    from . import JSONRPCClient
+    from .legacy import LegacyClient
 
 # Raw API keys have the format: {api_key_id}-{raw_key_material}
 # Example: 1-uz8DhKHFhRIUQIvjzabPYtpy5wf1DJ3ZBLlDgNVhRAFT7Y6pJGUlm0n3apwxWEU4
@@ -208,7 +209,7 @@ def _raise_for_api_key_response(resp: dict) -> None:
             raise ValueError(f'{other}: unexpected server response')
 
 
-def _resolve_channel_binding(c: 'Client', channel_binding: bool) -> CryptoDatum | None:
+def _resolve_channel_binding(c: 'JSONRPCClient | LegacyClient', channel_binding: bool) -> CryptoDatum | None:
     """Resolve the SCRAM channel binding to use for the current connection.
 
     Returns the RFC 5929 ``tls-server-end-point`` binding for a TLS (``wss://``)
@@ -255,7 +256,7 @@ def _resolve_channel_binding(c: 'Client', channel_binding: bool) -> CryptoDatum 
 
 
 def api_key_authenticate(
-    c: 'Client',
+    c: 'JSONRPCClient | LegacyClient',
     auth_mechanism: APIKeyAuthMech,
     username: str,
     key_in: str | None,
@@ -385,7 +386,7 @@ def api_key_authenticate(
     # local UNIX socket is exempt, other non-TLS transports raise) and the
     # channel_binding=False escape hatch for servers without channel-binding support.
     binding = _resolve_channel_binding(c, channel_binding)
-    first_kwargs = {'channel_binding_type': CB_TLS_SERVER_END_POINT} if binding else {}
+    first_kwargs: dict[str, str] = {'channel_binding_type': CB_TLS_SERVER_END_POINT} if binding else {}
 
     client_first_message = sc.get_client_first_message(username, **first_kwargs)
 

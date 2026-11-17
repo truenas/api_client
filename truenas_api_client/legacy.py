@@ -9,6 +9,7 @@ import random
 import socket
 import ssl
 from threading import Event, Lock, Thread
+from typing import Any
 import time
 import urllib.parse
 import uuid
@@ -220,17 +221,17 @@ class LegacyClient:
         if call_timeout is undefined:
             call_timeout = CALL_TIMEOUT
 
-        self._calls = {}
-        self._jobs = defaultdict(dict)
+        self._calls: dict[str, Call] = {}
+        self._jobs: defaultdict[Any, dict[str, Any]] = defaultdict(dict)
         # we use this dict as an ordered set because python stdlib has no ordered set
-        self._unclaimed_jobs = {}
+        self._unclaimed_jobs: dict[Any, None] = {}
         self._jobs_lock = Lock()
         self._jobs_watching = False
-        self._pings = {}
+        self._pings: dict[str, Event] = {}
         self._py_exceptions = py_exceptions
         self._log_py_exceptions = log_py_exceptions
         self._call_timeout = call_timeout
-        self._event_callbacks = defaultdict(list)
+        self._event_callbacks: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
         self._closed = Event()
         self._connected = Event()
         self._connection_error = None
