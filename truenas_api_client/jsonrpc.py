@@ -4,7 +4,7 @@ https://www.jsonrpc.org/specification
 
 """
 import enum
-from typing import Any, Literal, NamedTuple, TypeAlias, TypedDict
+from typing import Any, Literal, NamedTuple, TypeAlias, TypedDict, final
 
 
 class JSONRPCError(enum.Enum):
@@ -44,6 +44,7 @@ class JobFields(TypedDict):
     exc_info: ExcInfo
     error: str
     exception: str
+    message_ids: list[str]
 
 
 class CollectionUpdateParams(TypedDict):
@@ -54,6 +55,7 @@ class CollectionUpdateParams(TypedDict):
     extra: dict
 
 
+@final
 class CollectionUpdate(TypedDict):
     jsonrpc: Literal['2.0']
     method: Literal['collection_update']
@@ -83,12 +85,14 @@ class NotifyUnsubscribedParams(TypedDict):
     error: TruenasError | None
 
 
+@final
 class NotifyUnsubscribed(TypedDict):
     jsonrpc: Literal['2.0']
     method: Literal['notify_unsubscribed']
     params: NotifyUnsubscribedParams
 
 
+@final
 class SuccessResponse(TypedDict):
     jsonrpc: Literal['2.0']
     result: Any
@@ -101,12 +105,13 @@ class ErrorObj(TypedDict):
     data: TruenasError
 
 
+@final
 class ErrorResponse(TypedDict):
     jsonrpc: Literal['2.0']
     error: ErrorObj
-    id: str
+    id: str | None
 
 
 Notification: TypeAlias = CollectionUpdate | NotifyUnsubscribed
 Response: TypeAlias = SuccessResponse | ErrorResponse
-JSONRPCMessage: TypeAlias = Notification | Response
+JSONRPCMessage: TypeAlias = CollectionUpdate | NotifyUnsubscribed | SuccessResponse | ErrorResponse

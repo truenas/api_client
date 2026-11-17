@@ -60,6 +60,7 @@ class ErrnoMixin:
         for k, v in cls.__dict__.items():
             if k.startswith("E") and v == code:
                 return k
+        return None
 
 
 class ClientException(ErrnoMixin, Exception):

@@ -98,7 +98,7 @@ and server without transmitting passwords over the network. It protects against:
 
 import hashlib
 from enum import StrEnum
-from typing import TypedDict
+from typing import TypeAlias, TypedDict
 
 try:
     import truenas_pyscram  # type: ignore
@@ -118,7 +118,7 @@ ClientFirstMessage = truenas_pyscram.ClientFirstMessage
 ServerFirstMessage = truenas_pyscram.ServerFirstMessage
 ClientFinalMessage = truenas_pyscram.ClientFinalMessage
 ServerFinalMessage = truenas_pyscram.ServerFinalMessage
-CryptoDatum = truenas_pyscram.CryptoDatum
+CryptoDatum: TypeAlias = truenas_pyscram.CryptoDatum
 ScramError = truenas_pyscram.ScramError
 
 # Export error codes

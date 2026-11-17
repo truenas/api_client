@@ -192,7 +192,7 @@ def compute_tls_server_end_point(cert_der: bytes) -> CryptoDatum:
     oid, parameters = _signature_algorithm(cert_der)
 
     if oid == _RSASSA_PSS_OID:
-        hash_name = _rsassa_pss_hash(parameters)
+        hash_name: str | None = _rsassa_pss_hash(parameters)
     else:
         hash_name = _SIG_OID_TO_HASH.get(oid)
     if hash_name is None:

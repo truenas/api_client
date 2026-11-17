@@ -127,7 +127,7 @@ class ClientFinalMessage:
             # (RFC 5802 7); the gs2-header defaults to "n". Mirrors the C library's
             # scram_serialize_client_final_message so both backends emit the same c= value.
             gs2_header_str = (client_first.gs2_header or 'n') + GS2_SEPARATOR
-            cb_data = gs2_header_str.encode() + (bytes(channel_binding) if have_cb else b'')
+            cb_data = gs2_header_str.encode() + (bytes(channel_binding) if channel_binding else b'')
             channel_binding_b64 = b64encode(cb_data).decode()
 
             # Compute auth message
