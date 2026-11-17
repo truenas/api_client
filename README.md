@@ -267,6 +267,20 @@ Developers are highly recommended to architect their tools in a way that uses a 
 
 Developers that need to issue large quantities of subsequent operations (example: massive bulk dataset creations) are highly encouraged to leverage the `core.bulk` endpoint for queuing actions.
 
+## Package Versions
+
+Each branch sets its own `version` in `pyproject.toml` so pip can tell builds from different branches apart. The `version` workflow checks it on every pull request.
+
+| Branch | Version | Example |
+|---|---|---|
+| `master` | One major above the newest `stable/N`, with `.dev0` | `28.0.0.dev0` |
+| `stable/N` | Major `N`, next minor after the newest `release/N.*`, with `.dev0` | `27.1.0.dev0` |
+| `release/X.Y.Z` | The branch name | `27.0.0`, or `27.0.0rc1` for `release/27.0.0-RC.1` |
+
+When you cut `stable/N` from `master`, leave `stable/N` as it is and bump `master` to `N+1.0.0.dev0`.
+When you cut `release/N.Y.Z` from `stable/N`, drop `.dev0` on the release branch and bump `stable/N` to `N.Y+1.0.dev0`.
+When you cut a hotfix release branch, set its version to its branch name.
+
 ## Helpful Links
 
 <a href="https://truenas.com">
