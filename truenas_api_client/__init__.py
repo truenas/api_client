@@ -290,9 +290,10 @@ class WSClient:
             # Always try to extract whatever information is available from the ABNF object
             try:
                 # If there's data, try to extract code and reason (typically for close frames)
-                if e.data and len(e.data) >= 2:
-                    code = struct.unpack('!H', e.data[:2])[0]
-                reason = e.data[2:].decode('utf-8', errors='ignore')
+                if isinstance(e.data, bytes):
+                    if len(e.data) >= 2:
+                        code = struct.unpack('!H', e.data[:2])[0]
+                    reason = e.data[2:].decode('utf-8', errors='ignore')
             except Exception:
                 pass
 
@@ -582,11 +583,11 @@ class JSONRPCClient:
                                 for event in self._event_callbacks[params['collection']]:
                                     self._run_callback(event, [params['msg'].upper()], params)
                     case 'notify_unsubscribed':
-                        unsub_params = message['params']
-                        if unsub_params['collection'] in self._event_callbacks:
-                            for event in self._event_callbacks[unsub_params['collection']]:
-                                if 'error' in unsub_params:
-                                    err = unsub_params['error']
+                        unsubscribed = message['params']
+                        if unsubscribed['collection'] in self._event_callbacks:
+                            for event in self._event_callbacks[unsubscribed['collection']]:
+                                if 'error' in unsubscribed:
+                                    err = unsubscribed['error']
                                     event['error'] = reason if err and (reason := err['reason']) else err
                                 event['event'].set()
                     case _:
@@ -709,7 +710,7 @@ class JSONRPCClient:
             "py_exceptions": self._py_exceptions,
         }, background=True)
 
-    def on_close(self, code: int, reason: str | None = None):
+    def on_close(self, code: int | None, reason: str | None = None):
         """Close this `JSONRPCClient` in response to the `WebSocketApp` closing.
 
         End all unanswered calls and unreturned jobs with an error.
@@ -812,7 +813,10 @@ class JSONRPCClient:
         """Subscribe to job updates, calling `_jobs_callback` on every new event."""
         self._jobs_watching = True
         try:
-            self.subscribe('core.get_jobs', self._jobs_callback, sync=True, _log_py_enotauthenticated=not silent)
+            self.subscribe(
+                'core.get_jobs', self._jobs_callback, sync=True,  # type: ignore[arg-type]  # requires fields
+                _log_py_enotauthenticated=not silent,
+            )
         except Exception as e:
             self._jobs_watching = False
 

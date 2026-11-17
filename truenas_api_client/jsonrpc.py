@@ -4,7 +4,7 @@ https://www.jsonrpc.org/specification
 
 """
 import enum
-from typing import Any, Literal, NamedTuple, TypeAlias, TypedDict, final
+from typing import Any, Literal, NamedTuple, NotRequired, TypeAlias, TypedDict, final
 
 
 class JSONRPCError(enum.Enum):
@@ -34,6 +34,7 @@ class ExcInfo(TypedDict):
     type: str
     extra: list[ErrorExtra] | None
     repr: str
+    errno: NotRequired[int | None]
 
 
 class JobFields(TypedDict):

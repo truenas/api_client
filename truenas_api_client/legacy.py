@@ -36,8 +36,8 @@ class WSClient:
         self.reserved_ports = reserved_ports
         self.verify_ssl = verify_ssl
 
-        self.socket = None
-        self.app = None
+        self.socket: Any = None
+        self.app: Any = None
 
     def connect(self):
         unix_socket_prefix = "ws+unix://"
@@ -234,7 +234,7 @@ class LegacyClient:
         self._event_callbacks: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
         self._closed = Event()
         self._connected = Event()
-        self._connection_error = None
+        self._connection_error: str | None = None
         self._ws = WSClient(
             uri,
             client=self,
@@ -388,7 +388,7 @@ class LegacyClient:
         """
         Method to process the received job events.
         """
-        fields = message.get('fields')
+        fields: Any = message.get('fields')
         job_id = fields['id']
         with self._jobs_lock:
             if fields:
@@ -588,4 +588,4 @@ class LegacyClient:
         self._ws.close()
         # Wait for websocketclient thread to close
         self._closed.wait(1)
-        self._ws = None
+        del self._ws

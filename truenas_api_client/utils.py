@@ -11,7 +11,7 @@ Attributes:
 import socket
 import sys
 
-from typing import Any, final, Mapping
+from typing import Any, ClassVar, final, Mapping
 
 
 MIDDLEWARE_RUN_DIR = '/run/middleware'
@@ -19,6 +19,8 @@ MIDDLEWARE_RUN_DIR = '/run/middleware'
 
 @final
 class UndefinedType:
+    _instance: ClassVar['UndefinedType']
+
     def __new__(cls):
         if not hasattr(cls, '_instance'):
             cls._instance = super().__new__(cls)
@@ -81,7 +83,7 @@ class ProgressBar(object):
     """
     def __init__(self):
         self.message = None
-        self.percentage = 0
+        self.percentage = 0.0
         self.write_stream = sys.stderr
         self.used_flag = False
         self.extra = None
@@ -154,11 +156,10 @@ def set_socket_options(socobj):
     #   3. for a maximum up to 5 times
     #
     # after 5 times (5 seconds of no response), the socket will be closed
-    if plat in ('linux', 'freebsd', 'win32'):
-        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 1)
-
-    else:
+    if sys.platform == 'darwin':
         socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, 1)
+    else:
+        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 1)
 
     socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 1)
     socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)

@@ -54,7 +54,7 @@ class TestCloseRace(unittest.TestCase):
     def test_close_survives_teardown_race(self):
         """Replays the race against the installed websocket-client version."""
         app = WebSocketApp('ws://127.0.0.1/api/current')
-        app.sock = _RacingSock(app)
+        app.sock = _RacingSock(app)  # type: ignore[assignment]
         client = _ClientStub()
         ws = _bare(WSClient, app=app, client=client)
 

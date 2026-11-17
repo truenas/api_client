@@ -11,6 +11,7 @@ import ssl
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 from unittest import mock
 
 import truenas_api_client.auth_api_key as auth_api_key
@@ -18,7 +19,9 @@ from truenas_api_client import WSClient, get_parser
 from truenas_api_client.auth_api_key import (
     KeyData,
     KeyDataType,
+    PrecomputedKeyData,
     RAW_KEY_SEPARATOR,
+    RawKeyData,
     _parse_ini_config,
     _resolve_channel_binding,
     get_key_material,
@@ -44,7 +47,7 @@ class TestGetKeyMaterialRawKey(unittest.TestCase):
         self.assertIsInstance(result, KeyData)
         self.assertEqual(result.key_data_type, KeyDataType.RAW)
         self.assertIsInstance(result.key_data, dict)
-        self.assertEqual(result.key_data['raw_key'], key)
+        self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], key)
 
     def test_raw_key_realistic_format(self):
         """Test raw key with realistic alphanumeric format (no dashes in key material)."""
@@ -53,7 +56,7 @@ class TestGetKeyMaterialRawKey(unittest.TestCase):
         result = get_key_material(key)
 
         self.assertEqual(result.key_data_type, KeyDataType.RAW)
-        self.assertEqual(result.key_data['raw_key'], key)
+        self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], key)
 
     def test_raw_key_long_id(self):
         """Test raw key with long numeric ID."""
@@ -61,7 +64,7 @@ class TestGetKeyMaterialRawKey(unittest.TestCase):
         result = get_key_material(key)
 
         self.assertEqual(result.key_data_type, KeyDataType.RAW)
-        self.assertEqual(result.key_data['raw_key'], key)
+        self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], key)
 
 
 class TestGetKeyMaterialJSON(unittest.TestCase):
@@ -74,7 +77,7 @@ class TestGetKeyMaterialJSON(unittest.TestCase):
         result = get_key_material(json_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.RAW)
-        self.assertEqual(result.key_data['raw_key'], "789-jsonkey123")
+        self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], "789-jsonkey123")
 
     def test_json_with_precomputed_keys(self):
         """Test JSON with pre-computed cryptographic keys."""
@@ -88,7 +91,7 @@ class TestGetKeyMaterialJSON(unittest.TestCase):
         result = get_key_material(json_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-        precomputed = result.key_data
+        precomputed = cast(PrecomputedKeyData, result.key_data)
         self.assertEqual(precomputed['client_key'], "Y2xpZW50a2V5MTIz")
         self.assertEqual(precomputed['stored_key'], "c3RvcmVka2V5NDU2")
         self.assertEqual(precomputed['server_key'], "c2VydmVya2V5Nzg5")
@@ -123,7 +126,7 @@ api_key_id = 100
         result = get_key_material(ini_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-        precomputed = result.key_data
+        precomputed = cast(PrecomputedKeyData, result.key_data)
         self.assertEqual(precomputed['api_key_id'], 100)
         self.assertEqual(precomputed['client_key'], "Y2xpZW50a2V5MTIz")
 
@@ -139,7 +142,7 @@ api_key_id = 200
         result = get_key_material(ini_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-        self.assertEqual(result.key_data['api_key_id'], 200)
+        self.assertEqual(cast(PrecomputedKeyData, result.key_data)['api_key_id'], 200)
 
     def test_ini_single_section_any_name(self):
         """Test INI with single section accepts any name."""
@@ -152,7 +155,7 @@ api_key_id = 300
         result = get_key_material(ini_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-        self.assertEqual(result.key_data['api_key_id'], 300)
+        self.assertEqual(cast(PrecomputedKeyData, result.key_data)['api_key_id'], 300)
 
     def test_ini_with_multiple_sections_requires_truenas_api_key(self):
         """Test INI with multiple sections requires [TRUENAS_API_KEY]."""
@@ -171,8 +174,8 @@ api_key_id = 400
         result = get_key_material(ini_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-        self.assertEqual(result.key_data['api_key_id'], 400)
-        self.assertEqual(result.key_data['client_key'], "correct1")
+        self.assertEqual(cast(PrecomputedKeyData, result.key_data)['api_key_id'], 400)
+        self.assertEqual(cast(PrecomputedKeyData, result.key_data)['client_key'], "correct1")
 
     def test_ini_with_multiple_sections_without_truenas_api_key_fails(self):
         """Test INI with multiple sections but no [TRUENAS_API_KEY] raises error."""
@@ -194,7 +197,7 @@ raw_key = 500-rawkeydata
         result = get_key_material(ini_str)
 
         self.assertEqual(result.key_data_type, KeyDataType.RAW)
-        self.assertEqual(result.key_data['raw_key'], "500-rawkeydata")
+        self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], "500-rawkeydata")
 
 
 class TestParseINIConfig(unittest.TestCase):
@@ -256,7 +259,7 @@ class TestGetKeyMaterialFromFile(unittest.TestCase):
             result = get_key_material(temp_path)
 
             self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-            self.assertEqual(result.key_data['api_key_id'], 600)
+            self.assertEqual(cast(PrecomputedKeyData, result.key_data)['api_key_id'], 600)
         finally:
             Path(temp_path).unlink()
 
@@ -273,7 +276,7 @@ class TestGetKeyMaterialFromFile(unittest.TestCase):
             result = get_key_material(temp_path)
 
             self.assertEqual(result.key_data_type, KeyDataType.RAW)
-            self.assertEqual(result.key_data['raw_key'], raw_key)
+            self.assertEqual(cast(RawKeyData, result.key_data)['raw_key'], raw_key)
         finally:
             Path(temp_path).unlink()
 
@@ -295,7 +298,7 @@ api_key_id = 800
             result = get_key_material(temp_path)
 
             self.assertEqual(result.key_data_type, KeyDataType.PRECOMPUTED)
-            self.assertEqual(result.key_data['api_key_id'], 800)
+            self.assertEqual(cast(PrecomputedKeyData, result.key_data)['api_key_id'], 800)
         finally:
             Path(temp_path).unlink()
 
@@ -389,7 +392,7 @@ class TestPeerCertAccessor(unittest.TestCase):
 
     @staticmethod
     def _ws():
-        return WSClient("ws+unix:///run/middleware.sock", client=None)
+        return WSClient("ws+unix:///run/middleware.sock", client=None)  # type: ignore[arg-type]
 
     def test_no_socket_returns_none(self):
         # Before connect() no socket has been assigned.
