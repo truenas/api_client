@@ -3,6 +3,7 @@
 
 Both the current JSON-RPC client and the legacy client share this path, so both are covered.
 """
+
 import errno
 import unittest
 from collections import defaultdict
@@ -22,12 +23,26 @@ def _bare(cls, **attrs):
 
 
 def _current():
-    return _bare(JSONRPCClient, _calls={}, _jobs=defaultdict(dict), _jobs_lock=Lock(), _unclaimed_jobs={})
+    return _bare(
+        JSONRPCClient,
+        _calls={},
+        _jobs=defaultdict(dict),
+        _jobs_lock=Lock(),
+        _unclaimed_jobs={},
+    )
 
 
 def _legacy():
-    return _bare(LegacyClient, _calls={}, _jobs=defaultdict(dict), _jobs_lock=Lock(), _unclaimed_jobs={},
-                 _connected=Event(), _closed=Event(), _connection_error=None)
+    return _bare(
+        LegacyClient,
+        _calls={},
+        _jobs=defaultdict(dict),
+        _jobs_lock=Lock(),
+        _unclaimed_jobs={},
+        _connected=Event(),
+        _closed=Event(),
+        _connection_error=None,
+    )
 
 
 class _MutatingEvent(Event):
@@ -38,7 +53,7 @@ class _MutatingEvent(Event):
         self._jobs = jobs
 
     def set(self):
-        self._jobs['inserted-during-iteration'] = {}
+        self._jobs["inserted-during-iteration"] = {}
         super().set()
 
 
@@ -46,9 +61,11 @@ class TestAbortedJobResult(unittest.TestCase):
     """An aborted job (no exc_info) reports failure via ClientException."""
 
     def _check(self, client, job_cls):
-        job = job_cls(client, 'j1')
-        client._jobs['j1'].update(state='ABORTED', exc_info=None, exception=None, error=None)
-        client._jobs['j1']['__ready'].set()
+        job = job_cls(client, "j1")
+        client._jobs["j1"].update(
+            state="ABORTED", exc_info=None, exception=None, error=None
+        )
+        client._jobs["j1"]["__ready"].set()
         with self.assertRaises(ClientException):
             job.result()
 
@@ -63,13 +80,18 @@ class TestValidationJobResult(unittest.TestCase):
     """A validation-failed job surfaces as ValidationErrors, not a generic ClientException."""
 
     def _check(self, client, job_cls):
-        job = job_cls(client, 'j1')
-        client._jobs['j1'].update(
-            state='FAILED',
-            exc_info={'type': 'VALIDATION', 'repr': 'ValidationErrors',
-                      'extra': [('field', 'is required', errno.EINVAL)]},
-            exception='validation failed', error='validation failed')
-        client._jobs['j1']['__ready'].set()
+        job = job_cls(client, "j1")
+        client._jobs["j1"].update(
+            state="FAILED",
+            exc_info={
+                "type": "VALIDATION",
+                "repr": "ValidationErrors",
+                "extra": [("field", "is required", errno.EINVAL)],
+            },
+            exception="validation failed",
+            error="validation failed",
+        )
+        client._jobs["j1"]["__ready"].set()
         with self.assertRaises(ValidationErrors):
             job.result()
 
@@ -85,14 +107,14 @@ class TestJobResultAfterDisconnect(unittest.TestCase):
 
     def test_current(self):
         c = _current()
-        job = Job(c, 'j1')
-        c._broadcast_error(ClientException('closed', errno.ECONNABORTED))
+        job = Job(c, "j1")
+        c._broadcast_error(ClientException("closed", errno.ECONNABORTED))
         with self.assertRaises(ClientException):
             job.result()
 
     def test_legacy(self):
         c = _legacy()
-        job = LegacyJob(c, 'j1')
+        job = LegacyJob(c, "j1")
         c.on_close(1006)
         with self.assertRaises(ClientException):
             job.result()
@@ -103,16 +125,16 @@ class TestBroadcastConcurrentModification(unittest.TestCase):
 
     def test_current(self):
         c = _current()
-        c._jobs['j1'] = {'__ready': _MutatingEvent(c._jobs)}
-        c._broadcast_error(ClientException('closed', errno.ECONNABORTED))
-        self.assertIn('inserted-during-iteration', c._jobs)
+        c._jobs["j1"] = {"__ready": _MutatingEvent(c._jobs)}
+        c._broadcast_error(ClientException("closed", errno.ECONNABORTED))
+        self.assertIn("inserted-during-iteration", c._jobs)
 
     def test_legacy(self):
         c = _legacy()
-        c._jobs['j1'] = {'__ready': _MutatingEvent(c._jobs)}
+        c._jobs["j1"] = {"__ready": _MutatingEvent(c._jobs)}
         c.on_close(1006)
-        self.assertIn('inserted-during-iteration', c._jobs)
+        self.assertIn("inserted-during-iteration", c._jobs)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

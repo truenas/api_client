@@ -50,22 +50,28 @@ class WSClient:
             # plaintext ws:// URI. Require that scheme explicitly rather than, for example,
             # connecting a wss:// URI in cleartext.
             scheme = urllib.parse.urlparse(self.url).scheme
-            if scheme != 'ws':
+            if scheme != "ws":
                 raise ClientException(
-                    f'reserved_ports connections require a ws:// URI, got {scheme!r}'
+                    f"reserved_ports connections require a ws:// URI, got {scheme!r}"
                 )
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.settimeout(10)
             self._bind_to_reserved_port()
             try:
-                self.socket.connect((urllib.parse.urlparse(self.url).hostname,
-                                     urllib.parse.urlparse(self.url).port or 80))
+                self.socket.connect(
+                    (
+                        urllib.parse.urlparse(self.url).hostname,
+                        urllib.parse.urlparse(self.url).port or 80,
+                    )
+                )
             except Exception:
                 self.socket.close()
                 raise
             app_url = "ws://localhost/websocket"  # Adviced by official docs to use dummy hostname
         else:
-            sockopt = sock_opt(None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE})
+            sockopt = sock_opt(
+                None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE}
+            )
             sockopt.timeout = 10
             self.socket = connect(self.url, sockopt, proxy_info(), None)[0]
             app_url = self.url
@@ -103,7 +109,7 @@ class WSClient:
 
         for port in ports_to_try:
             try:
-                self.socket.bind(('', port))
+                self.socket.bind(("", port))
                 return
             except OSError:
                 time.sleep(0.1)
@@ -113,7 +119,7 @@ class WSClient:
 
     def _on_open(self, app):
         # TCP keepalive settings don't apply to local unix sockets
-        if 'ws+unix' not in self.url:
+        if "ws+unix" not in self.url:
             set_socket_options(self.socket)
 
         # if we're able to connect put socket in blocking mode
@@ -172,51 +178,61 @@ class Job:
         with client._jobs_lock:
             client._unclaimed_jobs.pop(job_id, None)
             job = client._jobs[job_id]
-            self.event = job.get('__ready')
+            self.event = job.get("__ready")
             if self.event is None:
-                self.event = job['__ready'] = Event()
-            job['__callback'] = callback
+                self.event = job["__ready"] = Event()
+            job["__callback"] = callback
 
     def __repr__(self):
-        return f'<Job[{self.job_id}]>'
+        return f"<Job[{self.job_id}]>"
 
     def result(self):
         # Wait indefinitely for the job event with state SUCCESS/FAILED/ABORTED
         self.event.wait()
         job = self.client._jobs.pop(self.job_id, None)
         if job is None:
-            raise ClientException('No job event was received.')
-        state = job.get('state')
-        if state == 'SUCCESS':
-            return job['result']
+            raise ClientException("No job event was received.")
+        state = job.get("state")
+        if state == "SUCCESS":
+            return job["result"]
 
-        exc_info = job.get('exc_info')
+        exc_info = job.get("exc_info")
         if exc_info:
-            if exc_info['type'] == 'VALIDATION':
-                raise ValidationErrors(exc_info['extra'] or [])
+            if exc_info["type"] == "VALIDATION":
+                raise ValidationErrors(exc_info["extra"] or [])
             raise ClientException(
-                job['error'],
+                job["error"],
                 trace={
-                    'class': exc_info['type'],
-                    'frames': [],
-                    'formatted': job['exception'],
-                    'repr': exc_info.get('repr') or job['exception'].splitlines()[-1],
+                    "class": exc_info["type"],
+                    "frames": [],
+                    "formatted": job["exception"],
+                    "repr": exc_info.get("repr") or job["exception"].splitlines()[-1],
                 },
-                extra=exc_info['extra'],
+                extra=exc_info["extra"],
             )
         # Aborted or interrupted jobs have no exc_info to build a trace from.
-        raise ClientException(job.get('error') or f'Job {self.job_id} did not succeed (state={state!r})')
+        raise ClientException(
+            job.get("error") or f"Job {self.job_id} did not succeed (state={state!r})"
+        )
 
 
 class LegacyClient:
-    def __init__(self, uri=None, reserved_ports=False, private_methods=False, py_exceptions=False,
-                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True):
+    def __init__(
+        self,
+        uri=None,
+        reserved_ports=False,
+        private_methods=False,
+        py_exceptions=False,
+        log_py_exceptions=False,
+        call_timeout: float | UndefinedType = undefined,
+        verify_ssl=True,
+    ):
         """
         Arguments:
            :reserved_ports(bool): should the local socket used a reserved port
         """
         if uri is None:
-            uri = f'ws+unix://{MIDDLEWARE_RUN_DIR}/middlewared.sock'
+            uri = f"ws+unix://{MIDDLEWARE_RUN_DIR}/middlewared.sock"
 
         if call_timeout is undefined:
             call_timeout = CALL_TIMEOUT
@@ -231,7 +247,9 @@ class LegacyClient:
         self._py_exceptions = py_exceptions
         self._log_py_exceptions = log_py_exceptions
         self._call_timeout = call_timeout
-        self._event_callbacks: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+        self._event_callbacks: defaultdict[str, list[dict[str, Any]]] = defaultdict(
+            list
+        )
         self._closed = Event()
         self._connected = Event()
         self._connection_error: str | None = None
@@ -244,7 +262,7 @@ class LegacyClient:
         self._ws.connect()
         self._connected.wait(10)
         if not self._connected.is_set():
-            raise ClientException('Failed connection handshake')
+            raise ClientException("Failed connection handshake")
         if self._connection_error is not None:
             raise ClientException(self._connection_error)
 
@@ -262,30 +280,34 @@ class LegacyClient:
         except (AttributeError, WebSocketConnectionClosedException):
             # happens when other node on HA is rebooted, for example, and there are
             # running tasks in the event loop (i.e. failover.call_remote failover.get_disks_local)
-            raise ClientException('Unexpected closure of remote connection', errno.ECONNABORTED)
+            raise ClientException(
+                "Unexpected closure of remote connection", errno.ECONNABORTED
+            )
 
     def _recv(self, message):
-        _id = message.get('id')
-        msg = message.get('msg')
-        if msg == 'connected':
+        _id = message.get("id")
+        msg = message.get("msg")
+        if msg == "connected":
             self._connected.set()
-        elif msg == 'failed':
-            self._connection_error = 'Unsupported protocol version'
+        elif msg == "failed":
+            self._connection_error = "Unsupported protocol version"
             self._connected.set()
-        elif msg == 'pong' and _id is not None:
+        elif msg == "pong" and _id is not None:
             ping_event = self._pings.get(_id)
             if ping_event:
                 ping_event.set()
-        elif _id is not None and msg == 'result':
+        elif _id is not None and msg == "result":
             if call := self._calls.get(_id):
-                call.result = message.get('result')
-                if 'error' in message:
-                    call.errno = message['error'].get('error')
-                    call.error = message['error'].get('reason')
-                    call.trace = message['error'].get('trace')
-                    call.type = message['error'].get('type')
-                    call.extra = message['error'].get('extra')
-                    if self._py_exceptions and (py_exception := message['error'].get('py_exception')):
+                call.result = message.get("result")
+                if "error" in message:
+                    call.errno = message["error"].get("error")
+                    call.error = message["error"].get("reason")
+                    call.trace = message["error"].get("trace")
+                    call.type = message["error"].get("type")
+                    call.extra = message["error"].get("extra")
+                    if self._py_exceptions and (
+                        py_exception := message["error"].get("py_exception")
+                    ):
                         try:
                             call.py_exception = pickle.loads(b64decode(py_exception))
                         except Exception as e:
@@ -293,60 +315,67 @@ class LegacyClient:
                 call.returned.set()
                 self._unregister_call(call)
             else:
-                if 'error' in message:
+                if "error" in message:
                     for events in self._event_callbacks.values():
                         for event in events:
-                            if event['id'] == _id:
-                                event['error'] = message['error']
-                                event['ready'].set()
+                            if event["id"] == _id:
+                                event["error"] = message["error"]
+                                event["ready"].set()
                                 break
-        elif msg in ('added', 'changed', 'removed'):
+        elif msg in ("added", "changed", "removed"):
             if self._event_callbacks:
-                if '*' in self._event_callbacks:
-                    for event in self._event_callbacks['*']:
+                if "*" in self._event_callbacks:
+                    for event in self._event_callbacks["*"]:
                         self._run_callback(event, [msg.upper()], message)
-                if message['collection'] in self._event_callbacks:
-                    for event in self._event_callbacks[message['collection']]:
+                if message["collection"] in self._event_callbacks:
+                    for event in self._event_callbacks[message["collection"]]:
                         self._run_callback(event, [msg.upper()], message)
-        elif msg == 'ready':
-            for subid in message['subs']:
+        elif msg == "ready":
+            for subid in message["subs"]:
                 # FIXME: We may need to keep a different index for id
                 # so we don't hve to iterate through all.
                 # This is fine for just a dozen subscriptions
                 for events in self._event_callbacks.values():
                     for event in events:
-                        if subid == event['id']:
-                            event['ready'].set()
+                        if subid == event["id"]:
+                            event["ready"].set()
                             break
-        elif msg == 'nosub':
-            if message['collection'] in self._event_callbacks:
-                for event in self._event_callbacks[message['collection']]:
-                    if 'error' in message:
-                        event['error'] = message['error']['reason'] or message['error']['error']
-                    event['ready'].set()
-                    event['event'].set()
+        elif msg == "nosub":
+            if message["collection"] in self._event_callbacks:
+                for event in self._event_callbacks[message["collection"]]:
+                    if "error" in message:
+                        event["error"] = (
+                            message["error"]["reason"] or message["error"]["error"]
+                        )
+                    event["ready"].set()
+                    event["event"].set()
 
     def _run_callback(self, event, args, kwargs):
-        if event['sync']:
-            event['callback'](*args, **kwargs)
+        if event["sync"]:
+            event["callback"](*args, **kwargs)
         else:
             Thread(
-                target=event['callback'], args=args, kwargs=kwargs, daemon=True,
+                target=event["callback"],
+                args=args,
+                kwargs=kwargs,
+                daemon=True,
             ).start()
 
     def on_open(self):
         features = []
         if self._py_exceptions:
-            features.append('PY_EXCEPTIONS')
-        self._send({
-            'msg': 'connect',
-            'version': '1',
-            'support': ['1'],
-            'features': features,
-        })
+            features.append("PY_EXCEPTIONS")
+        self._send(
+            {
+                "msg": "connect",
+                "version": "1",
+                "support": ["1"],
+                "features": features,
+            }
+        )
 
     def on_close(self, code, reason=None):
-        error = f'WebSocket connection closed with code={code!r}, reason={reason!r}'
+        error = f"WebSocket connection closed with code={code!r}, reason={reason!r}"
 
         self._connection_error = error
         self._connected.set()
@@ -359,20 +388,20 @@ class LegacyClient:
                 call.returned.set()
 
         for job in list(self._jobs.values()):
-            event = job.get('__ready')
+            event = job.get("__ready")
             if event is None:
-                event = job['__ready'] = Event()
+                event = job["__ready"] = Event()
 
             if not event.is_set():
                 # The connection dropped, so the real outcome is unknown (the job may still be
                 # running server-side); just mark it non-SUCCESS for Job.result().
-                job['state'] = 'UNKNOWN'
-                job['error'] = error
-                job['exception'] = error
-                job['exc_info'] = {
-                    'type': 'Exception',
-                    'repr': error,
-                    'extra': None,
+                job["state"] = "UNKNOWN"
+                job["error"] = error
+                job["exception"] = error
+                job["exc_info"] = {
+                    "type": "Exception",
+                    "repr": error,
+                    "extra": None,
                 }
                 event.set()
 
@@ -388,8 +417,8 @@ class LegacyClient:
         """
         Method to process the received job events.
         """
-        fields: Any = message.get('fields')
-        job_id = fields['id']
+        fields: Any = message.get("fields")
+        job_id = fields["id"]
         with self._jobs_lock:
             if fields:
                 if job_id not in self._jobs:
@@ -403,18 +432,24 @@ class LegacyClient:
                         self._jobs.pop(evicted, None)
                 job = self._jobs[job_id]
                 job.update(fields)
-                if callable(job.get('__callback')):
+                if callable(job.get("__callback")):
                     Thread(
-                        target=job['__callback'], args=(job,), daemon=True,
+                        target=job["__callback"],
+                        args=(job,),
+                        daemon=True,
                     ).start()
-                if mtype == 'CHANGED' and job['state'] in ('SUCCESS', 'FAILED', 'ABORTED'):
+                if mtype == "CHANGED" and job["state"] in (
+                    "SUCCESS",
+                    "FAILED",
+                    "ABORTED",
+                ):
                     # If an Event already exist we just set it to mark it finished.
                     # Otherwise, we create a new Event.
                     # This is to prevent a race-condition of job finishing before
                     # the client can create the Event.
-                    event = job.get('__ready')
+                    event = job.get("__ready")
                     if event is None:
-                        event = job['__ready'] = Event()
+                        event = job["__ready"] = Event()
                     event.set()
 
     def _jobs_subscribe(self):
@@ -422,9 +457,17 @@ class LegacyClient:
         Subscribe to job updates, calling `_jobs_callback` on every new event.
         """
         self._jobs_watching = True
-        self.subscribe('core.get_jobs', self._jobs_callback, sync=True)
+        self.subscribe("core.get_jobs", self._jobs_callback, sync=True)
 
-    def call(self, method, *params, background=False, callback=None, job=False, timeout=undefined):
+    def call(
+        self,
+        method,
+        *params,
+        background=False,
+        callback=None,
+        job=False,
+        timeout=undefined,
+    ):
         if timeout is undefined:
             timeout = self._call_timeout
 
@@ -435,12 +478,14 @@ class LegacyClient:
         c = Call(method, params)
         self._register_call(c)
         try:
-            self._send({
-                'msg': 'method',
-                'method': c.method,
-                'id': c.id,
-                'params': c.params,
-            })
+            self._send(
+                {
+                    "msg": "method",
+                    "method": c.method,
+                    "id": c.id,
+                    "params": c.params,
+                }
+            )
 
             if background:
                 return c
@@ -463,13 +508,13 @@ class LegacyClient:
                     if self._log_py_exceptions:
                         logger.error(c.trace["formatted"])
                     raise c.py_exception
-                if c.trace and c.type == 'VALIDATION':
+                if c.trace and c.type == "VALIDATION":
                     raise ValidationErrors(c.extra)
                 raise ClientException(c.error, c.errno, c.trace, c.extra)
 
             if job:
                 jobobj = Job(self, c.result, callback=callback)
-                if job == 'RETURN':
+                if job == "RETURN":
                     return jobobj
                 return jobobj.result()
 
@@ -480,39 +525,45 @@ class LegacyClient:
     @staticmethod
     def event_payload():
         return {
-            'id': str(uuid.uuid4()),
-            'callback': None,
-            'sync': False,
-            'ready': Event(),
-            'error': None,
-            'event': Event(),
+            "id": str(uuid.uuid4()),
+            "callback": None,
+            "sync": False,
+            "ready": Event(),
+            "error": None,
+            "event": Event(),
         }
 
     def subscribe(self, name, callback, payload=None, sync=False):
         payload = payload or self.event_payload()
-        payload.update({
-            'callback': callback,
-            'sync': sync,
-        })
+        payload.update(
+            {
+                "callback": callback,
+                "sync": sync,
+            }
+        )
         self._event_callbacks[name].append(payload)
-        self._send({
-            'msg': 'sub',
-            'id': payload['id'],
-            'name': name,
-        })
-        if not payload['ready'].wait(10):
-            raise ValueError('Did not receive a response to the subscription request')
-        if payload['error']:
-            raise ValueError(payload['error'])
-        return payload['id']
+        self._send(
+            {
+                "msg": "sub",
+                "id": payload["id"],
+                "name": name,
+            }
+        )
+        if not payload["ready"].wait(10):
+            raise ValueError("Did not receive a response to the subscription request")
+        if payload["error"]:
+            raise ValueError(payload["error"])
+        return payload["id"]
 
     def unsubscribe(self, id_):
-        self._send({
-            'msg': 'unsub',
-            'id': id_,
-        })
+        self._send(
+            {
+                "msg": "unsub",
+                "id": id_,
+            }
+        )
         for k, events in list(self._event_callbacks.items()):
-            events = [v for v in events if v['id'] != id_]
+            events = [v for v in events if v["id"] != id_]
             if events:
                 self._event_callbacks[k] = events
             else:
@@ -521,10 +572,12 @@ class LegacyClient:
     def ping(self, timeout=10):
         _id = str(uuid.uuid4())
         event = self._pings[_id] = Event()
-        self._send({
-            'msg': 'ping',
-            'id': _id,
-        })
+        self._send(
+            {
+                "msg": "ping",
+                "id": _id,
+            }
+        )
 
         if not event.wait(timeout):
             return False
@@ -562,11 +615,17 @@ class LegacyClient:
             ValueError: an error occurred during authentication.
         """
         if auth_mechanism == APIKeyAuthMech.SCRAM:
-            raise ValueError('Legacy TrueNAS servers do not implement SCRAM authentication')
+            raise ValueError(
+                "Legacy TrueNAS servers do not implement SCRAM authentication"
+            )
 
-        api_key_authenticate(self, auth_mechanism, username, api_key, use_legacy_endpoint=True)
+        api_key_authenticate(
+            self, auth_mechanism, username, api_key, use_legacy_endpoint=True
+        )
 
-    def login_with_password(self, username: str, password: str, *, otp_token: str | None = None) -> None:
+    def login_with_password(
+        self, username: str, password: str, *, otp_token: str | None = None
+    ) -> None:
         """
         Authenticate via username and password.
 
@@ -581,8 +640,8 @@ class LegacyClient:
         Raises:
             ValueError: authentication failed
         """
-        if not self.call('auth.login', username, password, otp_token):
-            raise ValueError('Invalid username or password')
+        if not self.call("auth.login", username, password, otp_token):
+            raise ValueError("Invalid username or password")
 
     def close(self):
         self._ws.close()

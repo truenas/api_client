@@ -7,23 +7,23 @@ from .scram_crypto import generate_nonce
 from .common import GS2_SEPARATOR, saslprep
 
 
-__all__ = ['ClientFirstMessage']
+__all__ = ["ClientFirstMessage"]
 
 
 class ClientFirstMessage:
-    __rfc_str = '<UNINITIALIZED>'
+    __rfc_str = "<UNINITIALIZED>"
 
     def __generate_rfc_string(self):
         nonce_b64 = b64encode(self.nonce).decode()
         name = self.username
-        hdr = self.gs2_header or 'n'
+        hdr = self.gs2_header or "n"
 
         # an API key id of zero means that we're doing scram auth with actual user credential
         if self.api_key_id != 0:
             # API key auth
-            name += f':{self.api_key_id}'
+            name += f":{self.api_key_id}"
 
-        return f'{hdr}{GS2_SEPARATOR}n={name},r={nonce_b64}'
+        return f"{hdr}{GS2_SEPARATOR}n={name},r={nonce_b64}"
 
     def __init__(
         self,
@@ -34,35 +34,37 @@ class ClientFirstMessage:
         channel_binding_type: str | None = None,
     ):
         if not username:
-            raise ValueError('Must specify username')
+            raise ValueError("Must specify username")
 
         if not isinstance(username, str):
-            raise TypeError('Username must be string')
+            raise TypeError("Username must be string")
 
         # SCRAM messages are comma-separated and use '=' for the "=2C"/"=3D" username escapes
         # (RFC 5802 5.1) that this library does not emit. Reject both characters up front,
         # matching the C library's scram_create_client_first_message().
-        if ',' in username or '=' in username:
+        if "," in username or "=" in username:
             raise ValueError("username must not contain ',' or '='")
 
         if not isinstance(api_key_id, int):
-            raise TypeError('API key ID must be an integer')
+            raise TypeError("API key ID must be an integer")
 
         if gs2_header and not isinstance(gs2_header, str):
-            raise TypeError('GS2 header must be string if provided')
+            raise TypeError("GS2 header must be string if provided")
 
         if channel_binding_type is not None:
             if not isinstance(channel_binding_type, str):
-                raise TypeError('channel_binding_type must be string if provided')
+                raise TypeError("channel_binding_type must be string if provided")
             if not channel_binding_type:
                 # A "p=" gs2 cbind flag requires a non-empty cb-name; an empty string
                 # would emit a malformed "p=,," header. Reject it, matching the C
                 # library's scram_build_gs2_header() (rejects empty cb_name).
-                raise ValueError('channel_binding_type must not be empty if provided')
+                raise ValueError("channel_binding_type must not be empty if provided")
             if gs2_header is not None:
-                raise ValueError('Cannot specify both gs2_header and channel_binding_type')
+                raise ValueError(
+                    "Cannot specify both gs2_header and channel_binding_type"
+                )
             # Client requires channel binding: the gs2 cbind flag becomes "p=<cb-name>".
-            gs2_header = f'p={channel_binding_type}'
+            gs2_header = f"p={channel_binding_type}"
 
         self.__nonce = generate_nonce()
         # RFC 5802, Section 5.1: "Before sending the username to the server, the client SHOULD
