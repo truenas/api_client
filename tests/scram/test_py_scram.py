@@ -21,6 +21,7 @@ try:
     # Test-only oracle (not a runtime dependency of the client).
     from cryptography import x509 as _x509  # type: ignore
     from cryptography.exceptions import UnsupportedAlgorithm as _CryptoUnsupported  # type: ignore
+
     _HAVE_CRYPTOGRAPHY = True
 except ImportError:
     _HAVE_CRYPTOGRAPHY = False
@@ -100,7 +101,8 @@ class TestClientFirstMessage(unittest.TestCase):
     def test_channel_binding_type_builds_p_flag(self):
         """A channel_binding_type produces a 'p=<cb-name>,,' gs2 cbind flag."""
         msg = py_scram.ClientFirstMessage(
-            username="testuser", channel_binding_type="tls-server-end-point")
+            username="testuser", channel_binding_type="tls-server-end-point"
+        )
 
         self.assertEqual(msg.gs2_header, "p=tls-server-end-point")
         self.assertTrue(str(msg).startswith("p=tls-server-end-point,,"))
@@ -150,7 +152,7 @@ class TestClientFirstMessage(unittest.TestCase):
     def test_saslprep_normalization(self):
         """Test that username is normalized using SASLprep (RFC 5802, Section 5.1)."""
         # U+200B (zero-width space) should be mapped to nothing per RFC 3454, Table B.1
-        username_with_zwsp = "test\u200Buser"
+        username_with_zwsp = "test\u200buser"
         msg = py_scram.ClientFirstMessage(username=username_with_zwsp)
         # Zero-width space should be removed
         self.assertEqual(msg.username, "testuser")
@@ -166,7 +168,7 @@ class TestClientFirstMessage(unittest.TestCase):
     def test_saslprep_nbsp_to_space(self):
         """Test that non-breaking space is normalized to regular space via NFKC."""
         # U+00A0 (non-breaking space) is normalized to U+0020 (regular space) by NFKC
-        username_with_nbsp = "test\u00A0user"
+        username_with_nbsp = "test\u00a0user"
         msg = py_scram.ClientFirstMessage(username=username_with_nbsp)
         # Non-breaking space should be normalized to regular space
         self.assertEqual(msg.username, "test user")
@@ -189,7 +191,9 @@ class TestServerFirstMessage(unittest.TestCase):
 
     def test_from_rfc_string(self):
         """Test parsing ServerFirstMessage from RFC string."""
-        nonce = b64encode(b'\x22' * 64).decode()  # combined client+server nonce is 64 bytes
+        nonce = b64encode(
+            b"\x22" * 64
+        ).decode()  # combined client+server nonce is 64 bytes
         rfc_string = f"r={nonce},s=c2FsdA==,i=50000"
         msg = py_scram.ServerFirstMessage(rfc_string=rfc_string)
 
@@ -205,9 +209,7 @@ class TestServerFirstMessage(unittest.TestCase):
         iterations = 100000
 
         server_first = py_scram.ServerFirstMessage(
-            client_first=client_first,
-            salt=salt,
-            iterations=iterations
+            client_first=client_first, salt=salt, iterations=iterations
         )
 
         self.assertEqual(server_first.iterations, iterations)
@@ -223,9 +225,7 @@ class TestServerFirstMessage(unittest.TestCase):
         salt = py_scram.CryptoDatum(b"test_salt")
 
         server_first = py_scram.ServerFirstMessage(
-            client_first=client_first,
-            salt=salt,
-            iterations=100000
+            client_first=client_first, salt=salt, iterations=100000
         )
 
         serialized = str(server_first)
@@ -251,7 +251,7 @@ class TestServerFirstMessage(unittest.TestCase):
                 client_first=client_first,
                 salt=salt,
                 iterations=100000,
-                rfc_string="r=test,s=test,i=100000"
+                rfc_string="r=test,s=test,i=100000",
             )
 
     def test_missing_parameters(self):
@@ -268,17 +268,13 @@ class TestClientFinalMessage(unittest.TestCase):
         self.client_first = py_scram.ClientFirstMessage(username="testuser")
         self.salt = py_scram.CryptoDatum(b"test_salt_16bytes")
         self.server_first = py_scram.ServerFirstMessage(
-            client_first=self.client_first,
-            salt=self.salt,
-            iterations=100000
+            client_first=self.client_first, salt=self.salt, iterations=100000
         )
 
         # Generate keys using crypto functions
         key_data = b"test_password"
         salted_password = py_scram.scram_hi(
-            py_scram.CryptoDatum(key_data),
-            self.salt,
-            100000
+            py_scram.CryptoDatum(key_data), self.salt, 100000
         )
         self.client_key = py_scram.scram_create_client_key(salted_password)
         self.stored_key = py_scram.scram_create_stored_key(self.client_key)
@@ -289,7 +285,7 @@ class TestClientFinalMessage(unittest.TestCase):
             client_first=self.client_first,
             server_first=self.server_first,
             client_key=self.client_key,
-            stored_key=self.stored_key
+            stored_key=self.stored_key,
         )
 
         self.assertIsInstance(client_final.nonce, py_scram.CryptoDatum)
@@ -302,7 +298,7 @@ class TestClientFinalMessage(unittest.TestCase):
             client_first=self.client_first,
             server_first=self.server_first,
             client_key=self.client_key,
-            stored_key=self.stored_key
+            stored_key=self.stored_key,
         )
 
         serialized = str(client_final)
@@ -312,8 +308,8 @@ class TestClientFinalMessage(unittest.TestCase):
 
     def test_from_rfc_string(self):
         """Test parsing ClientFinalMessage from RFC string."""
-        nonce = b64encode(b'\x22' * 64).decode()
-        proof = b64encode(b'\x33' * 64).decode()
+        nonce = b64encode(b"\x22" * 64).decode()
+        proof = b64encode(b"\x33" * 64).decode()
         rfc_string = f"c=biws,r={nonce},p={proof}"
         client_final = py_scram.ClientFinalMessage(rfc_string=rfc_string)
 
@@ -329,17 +325,13 @@ class TestServerFinalMessage(unittest.TestCase):
         self.client_first = py_scram.ClientFirstMessage(username="testuser")
         self.salt = py_scram.CryptoDatum(b"test_salt_16bytes")
         self.server_first = py_scram.ServerFirstMessage(
-            client_first=self.client_first,
-            salt=self.salt,
-            iterations=100000
+            client_first=self.client_first, salt=self.salt, iterations=100000
         )
 
         # Generate keys
         key_data = b"test_password"
         salted_password = py_scram.scram_hi(
-            py_scram.CryptoDatum(key_data),
-            self.salt,
-            100000
+            py_scram.CryptoDatum(key_data), self.salt, 100000
         )
         self.client_key = py_scram.scram_create_client_key(salted_password)
         self.stored_key = py_scram.scram_create_stored_key(self.client_key)
@@ -349,7 +341,7 @@ class TestServerFinalMessage(unittest.TestCase):
             client_first=self.client_first,
             server_first=self.server_first,
             client_key=self.client_key,
-            stored_key=self.stored_key
+            stored_key=self.stored_key,
         )
 
     def test_creation(self):
@@ -359,7 +351,7 @@ class TestServerFinalMessage(unittest.TestCase):
             server_first=self.server_first,
             client_final=self.client_final,
             stored_key=self.stored_key,
-            server_key=self.server_key
+            server_key=self.server_key,
         )
 
         self.assertIsInstance(server_final.signature, py_scram.CryptoDatum)
@@ -372,7 +364,7 @@ class TestServerFinalMessage(unittest.TestCase):
             server_first=self.server_first,
             client_final=self.client_final,
             stored_key=self.stored_key,
-            server_key=self.server_key
+            server_key=self.server_key,
         )
 
         serialized = str(server_final)
@@ -393,7 +385,7 @@ class TestServerFinalMessage(unittest.TestCase):
             client_first=self.client_first,
             server_first=self.server_first,
             client_key=self.client_key,
-            stored_key=wrong_stored_key
+            stored_key=wrong_stored_key,
         )
 
         # Server final should fail to create with mismatched keys
@@ -403,7 +395,7 @@ class TestServerFinalMessage(unittest.TestCase):
                 server_first=self.server_first,
                 client_final=wrong_client_final,
                 stored_key=self.stored_key,
-                server_key=self.server_key
+                server_key=self.server_key,
             )
 
 
@@ -415,17 +407,13 @@ class TestVerificationFunctions(unittest.TestCase):
         self.client_first = py_scram.ClientFirstMessage(username="testuser")
         self.salt = py_scram.CryptoDatum(b"test_salt_16bytes")
         self.server_first = py_scram.ServerFirstMessage(
-            client_first=self.client_first,
-            salt=self.salt,
-            iterations=100000
+            client_first=self.client_first, salt=self.salt, iterations=100000
         )
 
         # Generate keys
         key_data = b"test_password"
         salted_password = py_scram.scram_hi(
-            py_scram.CryptoDatum(key_data),
-            self.salt,
-            100000
+            py_scram.CryptoDatum(key_data), self.salt, 100000
         )
         self.client_key = py_scram.scram_create_client_key(salted_password)
         self.stored_key = py_scram.scram_create_stored_key(self.client_key)
@@ -435,7 +423,7 @@ class TestVerificationFunctions(unittest.TestCase):
             client_first=self.client_first,
             server_first=self.server_first,
             client_key=self.client_key,
-            stored_key=self.stored_key
+            stored_key=self.stored_key,
         )
 
         self.server_final = py_scram.ServerFinalMessage(
@@ -443,7 +431,7 @@ class TestVerificationFunctions(unittest.TestCase):
             server_first=self.server_first,
             client_final=self.client_final,
             stored_key=self.stored_key,
-            server_key=self.server_key
+            server_key=self.server_key,
         )
 
     def test_verify_server_signature_success(self):
@@ -454,7 +442,7 @@ class TestVerificationFunctions(unittest.TestCase):
             server_first=self.server_first,
             client_final=self.client_final,
             server_final=self.server_final,
-            server_key=self.server_key
+            server_key=self.server_key,
         )
 
     def test_verify_server_signature_failure(self):
@@ -467,7 +455,7 @@ class TestVerificationFunctions(unittest.TestCase):
                 server_first=self.server_first,
                 client_final=self.client_final,
                 server_final=self.server_final,
-                server_key=wrong_server_key
+                server_key=wrong_server_key,
             )
 
         self.assertEqual(ctx.exception.code, py_scram.SCRAM_E_AUTH_FAILED)
@@ -479,7 +467,7 @@ class TestVerificationFunctions(unittest.TestCase):
             client_first=self.client_first,
             server_first=self.server_first,
             client_final=self.client_final,
-            stored_key=self.stored_key
+            stored_key=self.stored_key,
         )
 
     def test_verify_client_final_message_failure(self):
@@ -491,7 +479,7 @@ class TestVerificationFunctions(unittest.TestCase):
                 client_first=self.client_first,
                 server_first=self.server_first,
                 client_final=self.client_final,
-                stored_key=wrong_stored_key
+                stored_key=wrong_stored_key,
             )
 
         self.assertEqual(ctx.exception.code, py_scram.SCRAM_E_AUTH_FAILED)
@@ -504,7 +492,8 @@ class TestCLibraryCongruence(unittest.TestCase):
         self.salt = py_scram.CryptoDatum(b"test_salt_16bytes")
         self.client_first = py_scram.ClientFirstMessage(username="testuser")
         self.server_first = py_scram.ServerFirstMessage(
-            client_first=self.client_first, salt=self.salt, iterations=100000)
+            client_first=self.client_first, salt=self.salt, iterations=100000
+        )
         salted = py_scram.scram_hi(py_scram.CryptoDatum(b"pw"), self.salt, 100000)
         self.client_key = py_scram.scram_create_client_key(salted)
         self.stored_key = py_scram.scram_create_stored_key(self.client_key)
@@ -518,45 +507,59 @@ class TestCLibraryCongruence(unittest.TestCase):
 
     def test_channel_binding_c_value(self):
         """c= is base64(gs2-header + ',,' + cbind-data), as the C serializer builds it."""
-        cb = py_scram.CryptoDatum(b'\xaa' * 32)
+        cb = py_scram.CryptoDatum(b"\xaa" * 32)
         cfirst = py_scram.ClientFirstMessage(
-            username="testuser", channel_binding_type="tls-server-end-point")
+            username="testuser", channel_binding_type="tls-server-end-point"
+        )
         sfirst = py_scram.ServerFirstMessage(
-            client_first=cfirst, salt=self.salt, iterations=100000)
+            client_first=cfirst, salt=self.salt, iterations=100000
+        )
         cfinal = py_scram.ClientFinalMessage(
-            client_first=cfirst, server_first=sfirst,
-            client_key=self.client_key, stored_key=self.stored_key, channel_binding=cb)
-        c_b64 = str(cfinal).split(',', 1)[0][len('c='):]
-        self.assertEqual(b64decode(c_b64), b'p=tls-server-end-point,,' + b'\xaa' * 32)
+            client_first=cfirst,
+            server_first=sfirst,
+            client_key=self.client_key,
+            stored_key=self.stored_key,
+            channel_binding=cb,
+        )
+        c_b64 = str(cfinal).split(",", 1)[0][len("c=") :]
+        self.assertEqual(b64decode(c_b64), b"p=tls-server-end-point,," + b"\xaa" * 32)
 
     def test_p_flag_requires_channel_binding(self):
         """gs2 'p' flag without binding data is rejected (check_gs2_cb_consistency)."""
         cfirst = py_scram.ClientFirstMessage(
-            username="testuser", channel_binding_type="tls-server-end-point")
+            username="testuser", channel_binding_type="tls-server-end-point"
+        )
         sfirst = py_scram.ServerFirstMessage(
-            client_first=cfirst, salt=self.salt, iterations=100000)
+            client_first=cfirst, salt=self.salt, iterations=100000
+        )
         with self.assertRaises(ValueError):
             py_scram.ClientFinalMessage(
-                client_first=cfirst, server_first=sfirst,
-                client_key=self.client_key, stored_key=self.stored_key)
+                client_first=cfirst,
+                server_first=sfirst,
+                client_key=self.client_key,
+                stored_key=self.stored_key,
+            )
 
     def test_channel_binding_requires_p_flag(self):
         """Binding data with a non-'p' flag is rejected (check_gs2_cb_consistency)."""
         with self.assertRaises(ValueError):
             py_scram.ClientFinalMessage(
-                client_first=self.client_first, server_first=self.server_first,
-                client_key=self.client_key, stored_key=self.stored_key,
-                channel_binding=py_scram.CryptoDatum(b'\xaa' * 32))
+                client_first=self.client_first,
+                server_first=self.server_first,
+                client_key=self.client_key,
+                stored_key=self.stored_key,
+                channel_binding=py_scram.CryptoDatum(b"\xaa" * 32),
+            )
 
     def test_server_first_rejects_wrong_nonce_size(self):
         """The C parser accepts only 32- or 64-byte nonces (scram_parse_nonce)."""
-        short = b64encode(b'\x22' * 11).decode()
+        short = b64encode(b"\x22" * 11).decode()
         with self.assertRaises(py_scram.ScramError):
             py_scram.ServerFirstMessage(rfc_string=f"r={short},s=c2FsdA==,i=50000")
 
     def test_server_first_rejects_low_iterations(self):
         """The C parser enforces the minimum iteration count (scram_parse_iteration_cnt)."""
-        nonce = b64encode(b'\x22' * 64).decode()
+        nonce = b64encode(b"\x22" * 64).decode()
         with self.assertRaises(py_scram.ScramError):
             py_scram.ServerFirstMessage(rfc_string=f"r={nonce},s=c2FsdA==,i=100")
 
@@ -642,9 +645,11 @@ class TestChannelBinding(unittest.TestCase):
         the signature parameters), DSA, ECDSA-SHA384, and the SHA-1 -> SHA-256
         promotion each yield the expected digest."""
         expected_len = {
-            'rsa_pss_sha256': 32, 'rsa_pss_sha512': 64, 'ecdsa_sha384': 48,
-            'rsa_sha1': 32,  # SHA-1 promoted to SHA-256
-            'dsa_sha256': 32,
+            "rsa_pss_sha256": 32,
+            "rsa_pss_sha512": 64,
+            "ecdsa_sha384": 48,
+            "rsa_sha1": 32,  # SHA-1 promoted to SHA-256
+            "dsa_sha256": 32,
         }
         for name, cert_der, expected in CB_VECTORS:
             with self.subTest(cert=name):
@@ -664,58 +669,73 @@ class TestChannelBindingServerSignatureRoundTrip(unittest.TestCase):
 
     @staticmethod
     def _auth_data():
-        salt = py_scram.CryptoDatum(b'\x11' * 16)
+        salt = py_scram.CryptoDatum(b"\x11" * 16)
         iters = py_scram.SCRAM_MIN_ITERS
         salted = py_scram.CryptoDatum(
-            hashlib.pbkdf2_hmac('sha512', b'secret', bytes(salt), iters)
+            hashlib.pbkdf2_hmac("sha512", b"secret", bytes(salt), iters)
         )
-        return salt, iters, py_scram.generate_scram_auth_data(
-            salted_password=salted, salt=salt, iterations=iters
+        return (
+            salt,
+            iters,
+            py_scram.generate_scram_auth_data(
+                salted_password=salted, salt=salt, iterations=iters
+            ),
         )
 
     @staticmethod
     def _server_final(cf, sf, fin, server_key):
         """Build the SERVER_FINAL_MESSAGE the way a server would: sign the AuthMessage
         (which embeds the client's c= verbatim) with HMAC(ServerKey, ...)."""
-        c_attr = next(p[2:] for p in str(fin).split(',') if p.startswith('c='))
-        r_attr = next(p[2:] for p in str(fin).split(',') if p.startswith('r='))
-        bare = str(cf).split(',,', 1)[1]
-        auth_msg = f'{bare},{sf},c={c_attr},r={r_attr}'
-        sig = hmac.new(bytes(server_key), auth_msg.encode(), 'sha512').digest()
-        return py_scram.ServerFinalMessage(rfc_string=f'v={b64encode(sig).decode()}')
+        c_attr = next(p[2:] for p in str(fin).split(",") if p.startswith("c="))
+        r_attr = next(p[2:] for p in str(fin).split(",") if p.startswith("r="))
+        bare = str(cf).split(",,", 1)[1]
+        auth_msg = f"{bare},{sf},c={c_attr},r={r_attr}"
+        sig = hmac.new(bytes(server_key), auth_msg.encode(), "sha512").digest()
+        return py_scram.ServerFinalMessage(rfc_string=f"v={b64encode(sig).decode()}")
 
     def test_bound_round_trip(self):
         salt, iters, auth = self._auth_data()
         binding = py_scram.compute_tls_server_end_point(_CB_TEST_CERT_DER)
         cf = py_scram.ClientFirstMessage(
-            username='u', api_key_id=5,
+            username="u",
+            api_key_id=5,
             channel_binding_type=py_scram.CB_TLS_SERVER_END_POINT,
         )
         sf = py_scram.ServerFirstMessage(client_first=cf, salt=salt, iterations=iters)
         fin = py_scram.ClientFinalMessage(
-            client_first=cf, server_first=sf,
-            client_key=auth.client_key, stored_key=auth.stored_key,
+            client_first=cf,
+            server_first=sf,
+            client_key=auth.client_key,
+            stored_key=auth.stored_key,
             channel_binding=binding,
         )
         server_final = self._server_final(cf, sf, fin, auth.server_key)
         # Must not raise: the reconstructed c= must match what the client sent.
         py_scram.verify_server_signature(
-            client_first=cf, server_first=sf, client_final=fin,
-            server_final=server_final, server_key=auth.server_key,
+            client_first=cf,
+            server_first=sf,
+            client_final=fin,
+            server_final=server_final,
+            server_key=auth.server_key,
         )
 
     def test_unbound_round_trip(self):
         salt, iters, auth = self._auth_data()
-        cf = py_scram.ClientFirstMessage(username='u', api_key_id=5)
+        cf = py_scram.ClientFirstMessage(username="u", api_key_id=5)
         sf = py_scram.ServerFirstMessage(client_first=cf, salt=salt, iterations=iters)
         fin = py_scram.ClientFinalMessage(
-            client_first=cf, server_first=sf,
-            client_key=auth.client_key, stored_key=auth.stored_key,
+            client_first=cf,
+            server_first=sf,
+            client_key=auth.client_key,
+            stored_key=auth.stored_key,
         )
         server_final = self._server_final(cf, sf, fin, auth.server_key)
         py_scram.verify_server_signature(
-            client_first=cf, server_first=sf, client_final=fin,
-            server_final=server_final, server_key=auth.server_key,
+            client_first=cf,
+            server_first=sf,
+            client_final=fin,
+            server_final=server_final,
+            server_key=auth.server_key,
         )
 
 
@@ -729,14 +749,14 @@ def _cryptography_tls_server_end_point(cert_der):
     except _CryptoUnsupported:
         sig_hash = None
     if sig_hash is None:
-        raise ValueError('tls-server-end-point is undefined for this certificate')
+        raise ValueError("tls-server-end-point is undefined for this certificate")
     name = sig_hash.name
-    if name in ('md5', 'sha1'):
-        name = 'sha256'
+    if name in ("md5", "sha1"):
+        name = "sha256"
     return hashlib.new(name, bytes(cert_der)).digest()
 
 
-@unittest.skipUnless(_HAVE_CRYPTOGRAPHY, 'python-cryptography not installed')
+@unittest.skipUnless(_HAVE_CRYPTOGRAPHY, "python-cryptography not installed")
 class TestChannelBindingCryptographyConformance(unittest.TestCase):
     """Cross-check the pure-python (fallback) channel-binding parser against an
     independent python-cryptography reference -- a third oracle alongside the
@@ -764,5 +784,5 @@ class TestChannelBindingCryptographyConformance(unittest.TestCase):
                     _cryptography_tls_server_end_point(cert_der)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

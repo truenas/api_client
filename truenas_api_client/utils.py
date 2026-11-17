@@ -8,21 +8,22 @@ Attributes:
     undefined: A dummy object similar in purpose to `None` that indicates an unset variable.
 
 """
+
 import socket
 import sys
 
 from typing import Any, ClassVar, final, Mapping
 
 
-MIDDLEWARE_RUN_DIR = '/run/middleware'
+MIDDLEWARE_RUN_DIR = "/run/middleware"
 
 
 @final
 class UndefinedType:
-    _instance: ClassVar['UndefinedType']
+    _instance: ClassVar["UndefinedType"]
 
     def __new__(cls):
-        if not hasattr(cls, '_instance'):
+        if not hasattr(cls, "_instance"):
             cls._instance = super().__new__(cls)
         return cls._instance
 
@@ -46,6 +47,7 @@ class Struct:
         6
 
     """
+
     def __init__(self, mapping: Mapping[str, Any]):
         """Initialize a `Struct` with a `Mapping`.
 
@@ -81,6 +83,7 @@ class ProgressBar(object):
         extra: A string or printable object to display after the status message.
 
     """
+
     def __init__(self):
         self.message = None
         self.percentage = 0.0
@@ -99,15 +102,17 @@ class ProgressBar(object):
         """
         progress_width = 40
         filled_width = int(self.percentage * progress_width)
-        self.write_stream.write('\033[2K\033[A\033[2K\r')
+        self.write_stream.write("\033[2K\033[A\033[2K\r")
         self.write_stream.write(
-            f'Status: {(self.message or "(none)").strip()}' + (
-                f' Extra: {self.extra}' if self.extra else ''
-            ) + '\n'
+            f"Status: {(self.message or '(none)').strip()}"
+            + (f" Extra: {self.extra}" if self.extra else "")
+            + "\n"
         )
         self.write_stream.write(
-            'Total Progress: [{}{}] {:.2%}'.format(
-                '#' * filled_width, '_' * (progress_width - filled_width), self.percentage
+            "Total Progress: [{}{}] {:.2%}".format(
+                "#" * filled_width,
+                "_" * (progress_width - filled_width),
+                self.percentage,
             )
         )
         self.write_stream.flush()
@@ -121,7 +126,7 @@ class ProgressBar(object):
 
         """
         if not self.used_flag:
-            self.write_stream.write('\n')
+            self.write_stream.write("\n")
             self.used_flag = True
         if percentage:
             self.percentage = float(percentage / 100.0)
@@ -136,13 +141,13 @@ class ProgressBar(object):
     def __exit__(self, typ, value, traceback):
         if self.used_flag:
             self.draw()
-            self.write_stream.write('\n')
+            self.write_stream.write("\n")
 
 
 def set_socket_options(socobj):
     plat = sys.platform
-    if plat not in ('win32', 'linux', 'freebsd', 'darwin'):
-        raise RuntimeError('Unsupported platform')
+    if plat not in ("win32", "linux", "freebsd", "darwin"):
+        raise RuntimeError("Unsupported platform")
 
     # enable keepalives on the socket
     socobj.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
@@ -156,7 +161,7 @@ def set_socket_options(socobj):
     #   3. for a maximum up to 5 times
     #
     # after 5 times (5 seconds of no response), the socket will be closed
-    if sys.platform == 'darwin':
+    if sys.platform == "darwin":
         socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, 1)
     else:
         socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 1)

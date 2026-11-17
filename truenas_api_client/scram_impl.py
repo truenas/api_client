@@ -110,8 +110,8 @@ except ImportError:
 
 
 # Import constants
-SCRAM_MAX_ITERS = getattr(truenas_pyscram, 'SCRAM_MAX_ITERS', 5000000)
-SCRAM_MIN_ITERS = getattr(truenas_pyscram, 'SCRAM_MIN_ITERS', 50000)
+SCRAM_MAX_ITERS = getattr(truenas_pyscram, "SCRAM_MAX_ITERS", 5000000)
+SCRAM_MIN_ITERS = getattr(truenas_pyscram, "SCRAM_MIN_ITERS", 50000)
 
 # Export message classes, exception, and error codes for compatibility
 ClientFirstMessage = truenas_pyscram.ClientFirstMessage
@@ -122,20 +122,24 @@ CryptoDatum: TypeAlias = truenas_pyscram.CryptoDatum
 ScramError = truenas_pyscram.ScramError
 
 # Export error codes
-SCRAM_E_AUTH_FAILED = getattr(truenas_pyscram, 'SCRAM_E_AUTH_FAILED', 7)
+SCRAM_E_AUTH_FAILED = getattr(truenas_pyscram, "SCRAM_E_AUTH_FAILED", 7)
 
 # Channel binding (RFC 5929 tls-server-end-point). Present on truenas_pyscram >= 0.2.0
 # and on the bundled py_scram fallback; absent on older C extensions, in which case
 # compute_tls_server_end_point is None and callers must skip channel binding.
-CB_TLS_SERVER_END_POINT = getattr(truenas_pyscram, 'CB_TLS_SERVER_END_POINT', 'tls-server-end-point')
-compute_tls_server_end_point = getattr(truenas_pyscram, 'compute_tls_server_end_point', None)
+CB_TLS_SERVER_END_POINT = getattr(
+    truenas_pyscram, "CB_TLS_SERVER_END_POINT", "tls-server-end-point"
+)
+compute_tls_server_end_point = getattr(
+    truenas_pyscram, "compute_tls_server_end_point", None
+)
 
 
 class ScramMessageType(StrEnum):
-    CLIENT_FIRST_MESSAGE = 'CLIENT_FIRST_MESSAGE'
-    SERVER_FIRST_RESPONSE = 'SERVER_FIRST_RESPONSE'
-    CLIENT_FINAL_MESSAGE = 'CLIENT_FINAL_MESSAGE'
-    SERVER_FINAL_RESPONSE = 'SERVER_FINAL_RESPONSE'
+    CLIENT_FIRST_MESSAGE = "CLIENT_FIRST_MESSAGE"
+    SERVER_FIRST_RESPONSE = "SERVER_FIRST_RESPONSE"
+    CLIENT_FINAL_MESSAGE = "CLIENT_FINAL_MESSAGE"
+    SERVER_FINAL_RESPONSE = "SERVER_FINAL_RESPONSE"
 
 
 class ScramMessage(TypedDict):
@@ -153,6 +157,7 @@ class TNScramClient:
     The TrueNAS API client will convert client / server JSON-RPC communication to the dataclasses
     defined above.
     """
+
     def __init__(
         self,
         *,
@@ -177,7 +182,9 @@ class TNScramClient:
         """
         if raw_key_material is None:
             if client_key is None or stored_key is None:
-                raise ValueError('Must provide either raw_key_material or both client_key and stored_key')
+                raise ValueError(
+                    "Must provide either raw_key_material or both client_key and stored_key"
+                )
 
         self.raw_key_material = raw_key_material
         self.client_key = client_key
@@ -215,22 +222,22 @@ class TNScramClient:
         """
         # Validate username
         if not username or not username.strip():
-            raise ValueError('Username cannot be empty')
+            raise ValueError("Username cannot be empty")
 
         # Build kwargs, only include gs2_header if it's not None
         kwargs = {
-            'username': username,
-            'api_key_id': self.api_key_id,
+            "username": username,
+            "api_key_id": self.api_key_id,
         }
         if gs2_header is not None:
-            kwargs['gs2_header'] = gs2_header
+            kwargs["gs2_header"] = gs2_header
         if channel_binding_type is not None:
-            kwargs['channel_binding_type'] = channel_binding_type
+            kwargs["channel_binding_type"] = channel_binding_type
 
         self.client_first_message = truenas_pyscram.ClientFirstMessage(**kwargs)
         return ScramMessage(
             scram_type=ScramMessageType.CLIENT_FIRST_MESSAGE,
-            rfc_str=str(self.client_first_message)
+            rfc_str=str(self.client_first_message),
         )
 
     def get_client_final_message(
@@ -257,14 +264,21 @@ class TNScramClient:
         Returns:
             ClientFinalMessage object
         """
-        if server_resp_dict['scram_type'] != ScramMessageType.SERVER_FIRST_RESPONSE:
-            raise TypeError(f'{server_resp_dict["scram_type"]}: unexpected response type')
+        if server_resp_dict["scram_type"] != ScramMessageType.SERVER_FIRST_RESPONSE:
+            raise TypeError(
+                f"{server_resp_dict['scram_type']}: unexpected response type"
+            )
 
-        server_resp = truenas_pyscram.ServerFirstMessage(rfc_string=server_resp_dict['rfc_str'])
-        if server_resp.iterations < SCRAM_MIN_ITERS or server_resp.iterations > SCRAM_MAX_ITERS:
+        server_resp = truenas_pyscram.ServerFirstMessage(
+            rfc_string=server_resp_dict["rfc_str"]
+        )
+        if (
+            server_resp.iterations < SCRAM_MIN_ITERS
+            or server_resp.iterations > SCRAM_MAX_ITERS
+        ):
             raise ValueError(
-                f'{server_resp.iterations}: iteration count from server is outside valid range '
-                f'[{SCRAM_MIN_ITERS}, {SCRAM_MAX_ITERS}]'
+                f"{server_resp.iterations}: iteration count from server is outside valid range "
+                f"[{SCRAM_MIN_ITERS}, {SCRAM_MAX_ITERS}]"
             )
 
         self.server_first_message = server_resp
@@ -272,14 +286,14 @@ class TNScramClient:
         # Generate keys if we have raw_key_material
         if self.raw_key_material is not None:
             # Convert raw password/key to bytes and compute salted password
-            password_bytes = self.raw_key_material.encode('utf-8')
+            password_bytes = self.raw_key_material.encode("utf-8")
 
             # Compute salted password using PBKDF2-HMAC-SHA512 (scram_hi)
             salted_password_bytes = hashlib.pbkdf2_hmac(
-                'sha512',
+                "sha512",
                 password_bytes,
                 bytes(server_resp.salt),
-                server_resp.iterations
+                server_resp.iterations,
             )
             salted_password = truenas_pyscram.CryptoDatum(salted_password_bytes)
 
@@ -287,7 +301,7 @@ class TNScramClient:
             auth_data = truenas_pyscram.generate_scram_auth_data(
                 salted_password=salted_password,
                 salt=server_resp.salt,
-                iterations=server_resp.iterations
+                iterations=server_resp.iterations,
             )
             self.client_key = auth_data.client_key
             self.stored_key = auth_data.stored_key
@@ -300,11 +314,11 @@ class TNScramClient:
             server_first=self.server_first_message,
             client_key=self.client_key,
             stored_key=self.stored_key,
-            channel_binding=channel_binding
+            channel_binding=channel_binding,
         )
         return ScramMessage(
             scram_type=ScramMessageType.CLIENT_FINAL_MESSAGE,
-            rfc_str=str(self.client_final_message)
+            rfc_str=str(self.client_final_message),
         )
 
     def verify_server_final_message(self, server_resp_dict: ScramMessage) -> bool:
@@ -325,18 +339,22 @@ class TNScramClient:
             TypeError: If response type is not SERVER_FINAL_RESPONSE
             ValueError: If server response lacks signature or verification fails
         """
-        if server_resp_dict['scram_type'] != ScramMessageType.SERVER_FINAL_RESPONSE:
-            raise TypeError(f'{server_resp_dict["scram_type"]}: unexpected response type')
+        if server_resp_dict["scram_type"] != ScramMessageType.SERVER_FINAL_RESPONSE:
+            raise TypeError(
+                f"{server_resp_dict['scram_type']}: unexpected response type"
+            )
 
-        server_resp = truenas_pyscram.ServerFinalMessage(rfc_string=server_resp_dict['rfc_str'])
+        server_resp = truenas_pyscram.ServerFinalMessage(
+            rfc_string=server_resp_dict["rfc_str"]
+        )
         if not server_resp.signature:
-            raise ValueError('Server response lacks signature')
+            raise ValueError("Server response lacks signature")
 
         self.server_final_message = server_resp
 
         # Verify the server signature
         if self.server_key is None:
-            raise ValueError('Cannot verify server signature without server_key')
+            raise ValueError("Cannot verify server signature without server_key")
 
         # Type narrowing: assert helps type checker understand server_key is not None
         assert self.server_key is not None
@@ -348,7 +366,7 @@ class TNScramClient:
             server_first=self.server_first_message,
             client_final=self.client_final_message,
             server_final=self.server_final_message,
-            server_key=self.server_key
+            server_key=self.server_key,
         )
 
         return True

@@ -20,11 +20,11 @@ import hashlib
 from .scram_crypto import CryptoDatum
 
 
-__all__ = ['CB_TLS_SERVER_END_POINT', 'compute_tls_server_end_point']
+__all__ = ["CB_TLS_SERVER_END_POINT", "compute_tls_server_end_point"]
 
 
 # RFC 5929 channel-binding type name (the "cb-name" in a "p=" gs2 flag).
-CB_TLS_SERVER_END_POINT = 'tls-server-end-point'
+CB_TLS_SERVER_END_POINT = "tls-server-end-point"
 
 
 # Map a certificate signatureAlgorithm OID to its *raw* signature digest -- before
@@ -35,37 +35,37 @@ CB_TLS_SERVER_END_POINT = 'tls-server-end-point'
 # EdDSA is intentionally absent (no single well-defined hash -> undefined, rejected).
 _SIG_OID_TO_HASH = {
     # RSASSA-PKCS1-v1_5
-    '1.2.840.113549.1.1.4': 'md5',      # md5WithRSAEncryption  -> promoted to sha256
-    '1.2.840.113549.1.1.5': 'sha1',     # sha1WithRSAEncryption -> promoted to sha256
-    '1.2.840.113549.1.1.14': 'sha224',  # sha224WithRSAEncryption
-    '1.2.840.113549.1.1.11': 'sha256',  # sha256WithRSAEncryption
-    '1.2.840.113549.1.1.12': 'sha384',  # sha384WithRSAEncryption
-    '1.2.840.113549.1.1.13': 'sha512',  # sha512WithRSAEncryption
+    "1.2.840.113549.1.1.4": "md5",  # md5WithRSAEncryption  -> promoted to sha256
+    "1.2.840.113549.1.1.5": "sha1",  # sha1WithRSAEncryption -> promoted to sha256
+    "1.2.840.113549.1.1.14": "sha224",  # sha224WithRSAEncryption
+    "1.2.840.113549.1.1.11": "sha256",  # sha256WithRSAEncryption
+    "1.2.840.113549.1.1.12": "sha384",  # sha384WithRSAEncryption
+    "1.2.840.113549.1.1.13": "sha512",  # sha512WithRSAEncryption
     # ECDSA
-    '1.2.840.10045.4.1': 'sha1',        # ecdsa-with-SHA1 -> promoted to sha256
-    '1.2.840.10045.4.3.1': 'sha224',    # ecdsa-with-SHA224
-    '1.2.840.10045.4.3.2': 'sha256',    # ecdsa-with-SHA256
-    '1.2.840.10045.4.3.3': 'sha384',    # ecdsa-with-SHA384
-    '1.2.840.10045.4.3.4': 'sha512',    # ecdsa-with-SHA512
+    "1.2.840.10045.4.1": "sha1",  # ecdsa-with-SHA1 -> promoted to sha256
+    "1.2.840.10045.4.3.1": "sha224",  # ecdsa-with-SHA224
+    "1.2.840.10045.4.3.2": "sha256",  # ecdsa-with-SHA256
+    "1.2.840.10045.4.3.3": "sha384",  # ecdsa-with-SHA384
+    "1.2.840.10045.4.3.4": "sha512",  # ecdsa-with-SHA512
     # DSA (OpenSSL resolves these via OBJ_find_sigid_algs; SHA-384/512 DSA have no
     # OpenSSL sigid and are therefore omitted so we reject them exactly as C does).
-    '1.2.840.10040.4.3': 'sha1',        # id-dsa-with-sha1 -> promoted to sha256
-    '2.16.840.1.101.3.4.3.1': 'sha224',  # id-dsa-with-sha224
-    '2.16.840.1.101.3.4.3.2': 'sha256',  # id-dsa-with-sha256
+    "1.2.840.10040.4.3": "sha1",  # id-dsa-with-sha1 -> promoted to sha256
+    "2.16.840.1.101.3.4.3.1": "sha224",  # id-dsa-with-sha224
+    "2.16.840.1.101.3.4.3.2": "sha256",  # id-dsa-with-sha256
 }
 
 # RSASSA-PSS encodes its message digest in the signatureAlgorithm parameters
 # (RSASSA-PSS-params), not in the OID, so it is resolved separately.
-_RSASSA_PSS_OID = '1.2.840.113549.1.1.10'
+_RSASSA_PSS_OID = "1.2.840.113549.1.1.10"
 
 # Digest OIDs that can appear in an RSASSA-PSS hashAlgorithm field.
 _HASH_OID_TO_NAME = {
-    '1.2.840.113549.2.5': 'md5',
-    '1.3.14.3.2.26': 'sha1',
-    '2.16.840.1.101.3.4.2.4': 'sha224',
-    '2.16.840.1.101.3.4.2.1': 'sha256',
-    '2.16.840.1.101.3.4.2.2': 'sha384',
-    '2.16.840.1.101.3.4.2.3': 'sha512',
+    "1.2.840.113549.2.5": "md5",
+    "1.3.14.3.2.26": "sha1",
+    "2.16.840.1.101.3.4.2.4": "sha224",
+    "2.16.840.1.101.3.4.2.1": "sha256",
+    "2.16.840.1.101.3.4.2.2": "sha384",
+    "2.16.840.1.101.3.4.2.3": "sha512",
 }
 
 
@@ -78,7 +78,7 @@ def _read_tlv(buf: bytes, offset: int) -> tuple[int, int, int]:
     input, since the certificate comes off the wire.
     """
     if offset + 2 > len(buf):
-        raise ValueError('truncated DER (TLV header)')
+        raise ValueError("truncated DER (TLV header)")
     tag = buf[offset]
     ptr = offset + 1
     length_byte = buf[ptr]
@@ -86,13 +86,13 @@ def _read_tlv(buf: bytes, offset: int) -> tuple[int, int, int]:
     if length_byte < 0x80:
         length = length_byte
     else:
-        num = length_byte & 0x7f
+        num = length_byte & 0x7F
         if ptr + num > len(buf):
-            raise ValueError('truncated DER (length)')
-        length = int.from_bytes(buf[ptr:ptr + num], 'big')
+            raise ValueError("truncated DER (length)")
+        length = int.from_bytes(buf[ptr : ptr + num], "big")
         ptr += num
     if ptr + length > len(buf):
-        raise ValueError('truncated DER (value)')
+        raise ValueError("truncated DER (value)")
     return tag, ptr, ptr + length
 
 
@@ -101,11 +101,11 @@ def _decode_oid(data: bytes) -> str:
     parts = [str(first // 40), str(first % 40)]
     value = 0
     for byte in data[1:]:
-        value = (value << 7) | (byte & 0x7f)
+        value = (value << 7) | (byte & 0x7F)
         if not byte & 0x80:
             parts.append(str(value))
             value = 0
-    return '.'.join(parts)
+    return ".".join(parts)
 
 
 def _signature_algorithm(cert_der: bytes) -> tuple[str, bytes]:
@@ -118,21 +118,21 @@ def _signature_algorithm(cert_der: bytes) -> tuple[str, bytes]:
     # Certificate ::= SEQUENCE { tbsCertificate SEQUENCE, signatureAlgorithm SEQUENCE, ... }
     tag, cert_start, _ = _read_tlv(cert_der, 0)
     if tag != 0x30:
-        raise ValueError('not a DER certificate')
+        raise ValueError("not a DER certificate")
 
     # Skip tbsCertificate.
     tag, _, after_tbs = _read_tlv(cert_der, cert_start)
     if tag != 0x30:
-        raise ValueError('malformed certificate (tbsCertificate)')
+        raise ValueError("malformed certificate (tbsCertificate)")
 
     # signatureAlgorithm ::= SEQUENCE { algorithm OBJECT IDENTIFIER, parameters ANY }
     tag, sig_alg_start, sig_alg_end = _read_tlv(cert_der, after_tbs)
     if tag != 0x30:
-        raise ValueError('malformed certificate (signatureAlgorithm)')
+        raise ValueError("malformed certificate (signatureAlgorithm)")
 
     tag, oid_start, oid_end = _read_tlv(cert_der, sig_alg_start)
     if tag != 0x06:
-        raise ValueError('malformed certificate (algorithm OID)')
+        raise ValueError("malformed certificate (algorithm OID)")
 
     oid = _decode_oid(cert_der[oid_start:oid_end])
     parameters = cert_der[oid_end:sig_alg_end]
@@ -150,31 +150,31 @@ def _rsassa_pss_hash(parameters: bytes) -> str:
     SHA-256). Raises ValueError for an unrecognized digest, as the C library does.
     """
     if not parameters:
-        return 'sha1'  # all params defaulted
+        return "sha1"  # all params defaulted
 
     tag, seq_start, seq_end = _read_tlv(parameters, 0)
     if tag != 0x30:
-        raise ValueError('malformed RSASSA-PSS parameters')
+        raise ValueError("malformed RSASSA-PSS parameters")
     if seq_start >= seq_end:
-        return 'sha1'  # empty SEQUENCE -> all defaults
+        return "sha1"  # empty SEQUENCE -> all defaults
 
     # First element, if present, is the [0] EXPLICIT hashAlgorithm.
     tag, h_start, h_end = _read_tlv(parameters, seq_start)
     if tag != 0xA0:
-        return 'sha1'  # hashAlgorithm omitted -> default SHA-1
+        return "sha1"  # hashAlgorithm omitted -> default SHA-1
 
     tag, alg_start, _ = _read_tlv(parameters, h_start)
     if tag != 0x30:
-        raise ValueError('malformed RSASSA-PSS hashAlgorithm')
+        raise ValueError("malformed RSASSA-PSS hashAlgorithm")
 
     tag, oid_start, oid_end = _read_tlv(parameters, alg_start)
     if tag != 0x06:
-        raise ValueError('malformed RSASSA-PSS hashAlgorithm OID')
+        raise ValueError("malformed RSASSA-PSS hashAlgorithm OID")
 
     oid = _decode_oid(parameters[oid_start:oid_end])
     name = _HASH_OID_TO_NAME.get(oid)
     if name is None:
-        raise ValueError(f'tls-server-end-point: unsupported RSASSA-PSS hash {oid}')
+        raise ValueError(f"tls-server-end-point: unsupported RSASSA-PSS hash {oid}")
     return name
 
 
@@ -196,11 +196,13 @@ def compute_tls_server_end_point(cert_der: bytes) -> CryptoDatum:
     else:
         hash_name = _SIG_OID_TO_HASH.get(oid)
     if hash_name is None:
-        raise ValueError(f'tls-server-end-point is undefined for signature algorithm {oid}')
+        raise ValueError(
+            f"tls-server-end-point is undefined for signature algorithm {oid}"
+        )
 
     # RFC 5929 4.1: MD5 and SHA-1 signature hashes are promoted to SHA-256.
-    if hash_name in ('md5', 'sha1'):
-        hash_name = 'sha256'
+    if hash_name in ("md5", "sha1"):
+        hash_name = "sha256"
 
     digest = hashlib.new(hash_name, cert_der).digest()
     return CryptoDatum(digest)

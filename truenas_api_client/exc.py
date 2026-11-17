@@ -16,6 +16,7 @@ else:
 
 class ReserveFDException(Exception):
     """A `WSClient` instance failed to bind to a reserved port."""
+
     pass
 
 
@@ -56,7 +57,7 @@ class ErrnoMixin:
 
         """
         if LIBZFS and 2000 <= code <= 2100:
-            return 'EZFS_' + ZFSError(code).name
+            return "EZFS_" + ZFSError(code).name
         for k, v in cls.__dict__.items():
             if k.startswith("E") and v == code:
                 return k
@@ -66,8 +67,13 @@ class ErrnoMixin:
 class ClientException(ErrnoMixin, Exception):
     """Represents any exception that might arise from a `Client`."""
 
-    def __init__(self, error: str, errno: int | None = None, trace: TruenasTraceback | None = None,
-                 extra: list[ErrorExtra] | None = None):
+    def __init__(
+        self,
+        error: str,
+        errno: int | None = None,
+        trace: TruenasTraceback | None = None,
+        extra: list[ErrorExtra] | None = None,
+    ):
         """Initialize `ClientException`.
 
         Args:
@@ -105,13 +111,14 @@ class ValidationErrors(ClientException):
     def __str__(self):
         msgs = []
         for e in self.errors:
-            errcode = errno.errorcode.get(e.errcode, 'EUNKNOWN')
-            msgs.append(f'[{errcode}] {e.attribute or "ALL"}: {e.errmsg}')
-        return '\n'.join(msgs)
+            errcode = errno.errorcode.get(e.errcode, "EUNKNOWN")
+            msgs.append(f"[{errcode}] {e.attribute or 'ALL'}: {e.errmsg}")
+        return "\n".join(msgs)
 
 
 class CallTimeout(ClientException):
     """A special `ClientException` raised when a `Call` times out before it can return a result."""
+
     def __init__(self):
         """Initiate a `ClientException` with message `"Call timeout"`."""
         super().__init__("Call timeout", errno.ETIMEDOUT)

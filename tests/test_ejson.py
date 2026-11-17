@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 """ejson round-trips its supported types, and decodes $date without double-counting sub-second ms."""
+
 import unittest
 from datetime import date, datetime, time, timezone
 from ipaddress import IPv4Interface, IPv6Interface
@@ -32,18 +33,18 @@ class TestRoundTrip(unittest.TestCase):
         self.assertEqual(loads(dumps(v)), v)
 
     def test_set(self):
-        v = {1, 2, 3, 'a'}
+        v = {1, 2, 3, "a"}
         self.assertEqual(loads(dumps(v)), v)
 
     def test_frozenset_decodes_to_set(self):
         self.assertEqual(loads(dumps(frozenset({1, 2, 3}))), {1, 2, 3})
 
     def test_ipv4_interface(self):
-        v = IPv4Interface('192.168.1.10/24')
+        v = IPv4Interface("192.168.1.10/24")
         self.assertEqual(loads(dumps(v)), v)
 
     def test_ipv6_interface(self):
-        v = IPv6Interface('2001:db8::1/64')
+        v = IPv6Interface("2001:db8::1/64")
         self.assertEqual(loads(dumps(v)), v)
 
 
@@ -63,5 +64,5 @@ class TestDateDecode(unittest.TestCase):
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

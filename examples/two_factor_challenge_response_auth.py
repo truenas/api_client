@@ -17,8 +17,8 @@ PASSWORD = "mypassword"
 
 
 def get_totp_secret() -> str:
-    """ This assumes the TOTP secret is written somewhere on client """
-    with open(TOTP_FILE, 'r') as f:
+    """This assumes the TOTP secret is written somewhere on client"""
+    with open(TOTP_FILE, "r") as f:
         return f.read()
 
 
@@ -28,11 +28,10 @@ def get_2fa_token(secret: str) -> str:
 
 
 def authenticate_client(c: truenas_api_client.Client) -> bool:
-    resp = c.call("auth.login_ex", {
-        "mechanism": "PASSWORD_PLAIN",
-        "username": USERNAME,
-        "password": PASSWORD
-    })
+    resp = c.call(
+        "auth.login_ex",
+        {"mechanism": "PASSWORD_PLAIN", "username": USERNAME, "password": PASSWORD},
+    )
 
     match resp["response_type"]:
         case "SUCCESS":
@@ -51,17 +50,17 @@ def authenticate_client(c: truenas_api_client.Client) -> bool:
             else:
                 otp_token = get_2fa_token(secret)
 
-            resp = c.call("auth.login_ex_continue", {
-                "mechanism": "OTP_TOKEN",
-                "otp_token": otp_token
-            })
+            resp = c.call(
+                "auth.login_ex_continue",
+                {"mechanism": "OTP_TOKEN", "otp_token": otp_token},
+            )
 
             # For interactive session the `auth.login_ex_continue` may
             # reply with OTP_REQUIRED again if the user fat-fingered input
             # since this is machine input no amount of attempts will succeed
             return resp["response_type"] == "SUCCESS"
         case _:
-            raise ValueError(f'{resp["response_type"]}: Unexpected response type')
+            raise ValueError(f"{resp['response_type']}: Unexpected response type")
 
 
 if not interactive:

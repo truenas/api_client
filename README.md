@@ -136,9 +136,14 @@ The TrueNAS API client can also be used in Python scripts.
 from truenas_api_client import Client
 
 with Client() as c:
-      user = {"full_name": "John Doe", "username": "jdoe", "password": "Canary", "group_create": True}
-      new_user_entry = c.call("user.create", user)
-      print(new_user_entry["full_name"])  # John Doe
+    user = {
+        "full_name": "John Doe",
+        "username": "jdoe",
+        "password": "Canary",
+        "group_create": True,
+    }
+    new_user_entry = c.call("user.create", user)
+    print(new_user_entry["full_name"])  # John Doe
 ```
 
 #### Login with a user account or an API key
@@ -146,15 +151,15 @@ with Client() as c:
 ```python
 # User account
 with Client(uri="ws://some.other.truenas/api/current") as c:
-      c.login_with_password(username, password)
+    c.login_with_password(username, password)
 
 # API key
 with Client(uri="ws://some.other.truenas/api/current") as c:
-      c.login_with_api_key(username, key)
+    c.login_with_api_key(username, key)
 
 # API key file
 with Client(uri="ws://some.other.truenas/api/current") as c:
-      c.login_with_api_key(username, "/path/to/keyfile.json")
+    c.login_with_api_key(username, "/path/to/keyfile.json")
 ```
 
 API-key login uses **SCRAM-SHA-512** by default (TrueNAS 26 and later), which never transmits
@@ -167,7 +172,7 @@ otherwise strip SCRAM to force the client to divulge the cleartext key:
 from truenas_api_client import APIKeyAuthMech
 
 with Client(uri="ws://old.truenas/api/current") as c:
-      c.login_with_api_key(username, key, auth_mechanism=APIKeyAuthMech.PLAIN)
+    c.login_with_api_key(username, key, auth_mechanism=APIKeyAuthMech.PLAIN)
 ```
 
 The `midclt` CLI exposes this as `--plain`. **Warning:** PLAIN transmits the raw API key; only
@@ -189,7 +194,7 @@ Pass `channel_binding=False` to authenticate without it:
 ```python
 # Reach a server without channel-binding support, or a plain ws:// endpoint
 with Client(uri="wss://some.other.truenas/api/current") as c:
-      c.login_with_api_key(username, key, channel_binding=False)
+    c.login_with_api_key(username, key, channel_binding=False)
 ```
 
 The `midclt` CLI exposes the same override as `--no-channel-binding`.
@@ -252,10 +257,10 @@ For single-section files, any section name is accepted. Files without section he
 
 ```python
 with Client() as c:
-      is_locked = c.call("pool.dataset.lock", "mypool/mydataset", job=True)
-      if is_locked:
-            args = {"datasets": [{"name": "mypool/mydataset", "passphrase": "passphrase"}]}
-            c.call("pool.dataset.unlock", "mypool/mydataset", args, job=True)
+    is_locked = c.call("pool.dataset.lock", "mypool/mydataset", job=True)
+    if is_locked:
+        args = {"datasets": [{"name": "mypool/mydataset", "passphrase": "passphrase"}]}
+        c.call("pool.dataset.unlock", "mypool/mydataset", args, job=True)
 ```
 
 ## API Rate Limits

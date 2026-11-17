@@ -28,6 +28,7 @@ Example::
     c.close()
 
 """
+
 import argparse
 from base64 import b64decode
 from collections import defaultdict
@@ -57,23 +58,52 @@ from websocket._socket import sock_opt
 from . import ejson as json
 from .auth_api_key import api_key_authenticate, APIKeyAuthMech
 from .config import CALL_TIMEOUT, UNCLAIMED_JOBS_MAX
-from .exc import ReserveFDException, ClientException, ErrnoMixin, ValidationErrors, CallTimeout  # noqa
+from .exc import (
+    ReserveFDException,
+    ClientException,
+    ErrnoMixin,
+    ValidationErrors,
+    CallTimeout,
+)  # noqa
 from .legacy import LegacyClient
-from .jsonrpc import CollectionUpdateParams, ErrorObj, JobFields, JSONRPCError, JSONRPCMessage, TruenasError
-from .utils import MIDDLEWARE_RUN_DIR, ProgressBar, undefined, UndefinedType, set_socket_options
+from .jsonrpc import (
+    CollectionUpdateParams,
+    ErrorObj,
+    JobFields,
+    JSONRPCError,
+    JSONRPCMessage,
+    TruenasError,
+)
+from .utils import (
+    MIDDLEWARE_RUN_DIR,
+    ProgressBar,
+    undefined,
+    UndefinedType,
+    set_socket_options,
+)
 
 logger = logging.getLogger(__name__)
 
 
 UNIX_SOCKET_PREFIX = "ws+unix://"
-DUMMY_HOSTNAME = "ws://localhost/api/current"  # Advised by official docs to use dummy hostname
+DUMMY_HOSTNAME = (
+    "ws://localhost/api/current"  # Advised by official docs to use dummy hostname
+)
 
 
 class Client:
     """Implicit wrapper of either a `JSONRPCClient` or a `LegacyClient`."""
 
-    def __init__(self, uri: str | None = None, reserved_ports=False, private_methods=False, py_exceptions=False,
-                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True):
+    def __init__(
+        self,
+        uri: str | None = None,
+        reserved_ports=False,
+        private_methods=False,
+        py_exceptions=False,
+        log_py_exceptions=False,
+        call_timeout: float | UndefinedType = undefined,
+        verify_ssl=True,
+    ):
         """Initialize either a `JSONRPCClient` or a `LegacyClient`.
 
         Use `JSONRPCClient` unless `uri` ends with '/websocket'.
@@ -93,21 +123,30 @@ class Client:
             ClientException: `WSClient` timed out or some other connection error occurred.
 
         """
-        if uri is not None and uri.endswith('/websocket'):
+        if uri is not None and uri.endswith("/websocket"):
             client_class: type[LegacyClient] | type[JSONRPCClient] = LegacyClient
         else:
             client_class = JSONRPCClient
 
         self.uri_check(uri, py_exceptions)
 
-        self.__client = client_class(uri, reserved_ports, private_methods, py_exceptions, log_py_exceptions,
-                                     call_timeout, verify_ssl)
+        self.__client = client_class(
+            uri,
+            reserved_ports,
+            private_methods,
+            py_exceptions,
+            log_py_exceptions,
+            call_timeout,
+            verify_ssl,
+        )
 
     def uri_check(self, uri: str | None, py_exceptions: bool):
         # We pickle_load when handling py_exceptions, reduce risk of MITM on client causing a pickle.load
         # of malicious information by only allowing this over unix domain socket.
         if uri and py_exceptions and not uri.startswith(UNIX_SOCKET_PREFIX):
-            raise ClientException('py_exceptions are only allowed for connections to unix domain socket')
+            raise ClientException(
+                "py_exceptions are only allowed for connections to unix domain socket"
+            )
 
     def __getattr__(self, item):
         return getattr(self.__client, item)
@@ -125,7 +164,15 @@ class WSClient:
     The object used by `JSONRPCClient` to send and receive data.
 
     """
-    def __init__(self, url: str, *, client: 'JSONRPCClient', reserved_ports: bool = False, verify_ssl: bool = True):
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        client: "JSONRPCClient",
+        reserved_ports: bool = False,
+        verify_ssl: bool = True,
+    ):
         """Initialize a `WSClient`.
 
         Args:
@@ -159,22 +206,28 @@ class WSClient:
             # plaintext ws:// URI. Require that scheme explicitly rather than, for example,
             # connecting a wss:// URI in cleartext.
             scheme = urllib.parse.urlparse(self.url).scheme
-            if scheme != 'ws':
+            if scheme != "ws":
                 raise ClientException(
-                    f'reserved_ports connections require a ws:// URI, got {scheme!r}'
+                    f"reserved_ports connections require a ws:// URI, got {scheme!r}"
                 )
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.settimeout(10)
             self._bind_to_reserved_port()
             try:
-                self.socket.connect((urllib.parse.urlparse(self.url).hostname,
-                                     urllib.parse.urlparse(self.url).port or 80))
+                self.socket.connect(
+                    (
+                        urllib.parse.urlparse(self.url).hostname,
+                        urllib.parse.urlparse(self.url).port or 80,
+                    )
+                )
             except Exception:
                 self.socket.close()
                 raise
             app_url = DUMMY_HOSTNAME
         else:
-            sockopt = sock_opt(None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE})
+            sockopt = sock_opt(
+                None, None if self.verify_ssl else {"cert_reqs": ssl.CERT_NONE}
+            )
             sockopt.timeout = 10
             self.socket = connect(self.url, sockopt, proxy_info(), None)[0]
             app_url = self.url
@@ -200,7 +253,7 @@ class WSClient:
         flow, which runs after `connect()`. Before the handshake `getpeercert()` returns
         an empty value, which callers treat as "no certificate" (a falsy result).
         """
-        sock = getattr(self, 'socket', None)
+        sock = getattr(self, "socket", None)
         if isinstance(sock, ssl.SSLSocket):
             return sock.getpeercert(binary_form=True)
 
@@ -246,7 +299,7 @@ class WSClient:
 
         for port in ports_to_try:
             try:
-                self.socket.bind(('', port))
+                self.socket.bind(("", port))
                 return
             except OSError:
                 time.sleep(0.1)
@@ -285,15 +338,15 @@ class WSClient:
 
         """
         code = None
-        reason = 'UNKNOWN'
+        reason = "UNKNOWN"
         if isinstance(e, ABNF):
             # Always try to extract whatever information is available from the ABNF object
             try:
                 # If there's data, try to extract code and reason (typically for close frames)
                 if isinstance(e.data, bytes):
                     if len(e.data) >= 2:
-                        code = struct.unpack('!H', e.data[:2])[0]
-                    reason = e.data[2:].decode('utf-8', errors='ignore')
+                        code = struct.unpack("!H", e.data[:2])[0]
+                    reason = e.data[2:].decode("utf-8", errors="ignore")
             except Exception:
                 pass
 
@@ -337,9 +390,10 @@ class Call:
 
 class _JobDict(JobFields):
     """Contains data received from the server for a particular running job."""
+
     __ready: Event
     """Is set when the job returns or ends in error."""
-    __callback: '_JobCallback | None'
+    __callback: "_JobCallback | None"
     """Procedure to execute each time a job update is received."""
 
 
@@ -352,7 +406,10 @@ class Job:
     Every `Job` is responsible for a corresponding `_JobDict` in the client's list of jobs.
 
     """
-    def __init__(self, client: 'JSONRPCClient', job_id: str, callback: _JobCallback | None = None):
+
+    def __init__(
+        self, client: "JSONRPCClient", job_id: str, callback: _JobCallback | None = None
+    ):
         """Initialize `Job`.
 
         Args:
@@ -370,13 +427,13 @@ class Job:
         with client._jobs_lock:
             client._unclaimed_jobs.pop(job_id, None)
             job = client._jobs[job_id]
-            self.event = job.get('__ready')
+            self.event = job.get("__ready")
             if self.event is None:
-                self.event = job['__ready'] = Event()
-            job['__callback'] = callback
+                self.event = job["__ready"] = Event()
+            job["__callback"] = callback
 
     def __repr__(self):
-        return f'<Job[{self.job_id}]>'
+        return f"<Job[{self.job_id}]>"
 
     def result(self):
         """Wait for the job to finish and return its result.
@@ -393,33 +450,36 @@ class Job:
         self.event.wait()
         job = self.client._jobs.pop(self.job_id, None)
         if job is None:
-            raise ClientException('No job event was received.')
-        state = job.get('state')
-        if state == 'SUCCESS':
-            return job['result']
+            raise ClientException("No job event was received.")
+        state = job.get("state")
+        if state == "SUCCESS":
+            return job["result"]
 
-        exc_info = job.get('exc_info')
+        exc_info = job.get("exc_info")
         if exc_info:
-            if exc_info['type'] == 'VALIDATION':
-                raise ValidationErrors(exc_info['extra'] or [])
+            if exc_info["type"] == "VALIDATION":
+                raise ValidationErrors(exc_info["extra"] or [])
             raise ClientException(
-                job['error'],
-                errno=exc_info.get('errno'),
+                job["error"],
+                errno=exc_info.get("errno"),
                 trace={
-                    'class': exc_info['type'],
-                    'frames': [],
-                    'formatted': job['exception'],
-                    'repr': exc_info.get('repr') or job['exception'].splitlines()[-1],
+                    "class": exc_info["type"],
+                    "frames": [],
+                    "formatted": job["exception"],
+                    "repr": exc_info.get("repr") or job["exception"].splitlines()[-1],
                 },
-                extra=exc_info['extra'],
+                extra=exc_info["extra"],
             )
 
         # Aborted or interrupted jobs have no exc_info to build a trace from.
-        raise ClientException(job.get('error') or f'Job {self.job_id} did not succeed (state={state!r})')
+        raise ClientException(
+            job.get("error") or f"Job {self.job_id} did not succeed (state={state!r})"
+        )
 
 
 class _EventCallbackProtocol(Protocol):
     """Specifies how event callbacks should be defined."""
+
     def __call__(self, mtype: str, **message: Any) -> None:
         pass
 
@@ -430,6 +490,7 @@ class _PartialPayload(TypedDict):
     Contains the required fields of `_Payload`.
 
     """
+
     callback: _EventCallbackProtocol | None
     sync: bool
     event: Event
@@ -447,6 +508,7 @@ class _Payload(_PartialPayload, total=False):
         id: Random UUID assigned by `core.subscribe`.
 
     """
+
     error: str | TruenasError | None
     id: str
 
@@ -457,8 +519,17 @@ class JSONRPCClient:
     Keeps track of the calls made, jobs submitted, and callbacks. Maintains a websocket connection using a `WSClient`.
 
     """
-    def __init__(self, uri: str | None = None, reserved_ports=False, private_methods=False, py_exceptions=False,
-                 log_py_exceptions=False, call_timeout: float | UndefinedType = undefined, verify_ssl=True):
+
+    def __init__(
+        self,
+        uri: str | None = None,
+        reserved_ports=False,
+        private_methods=False,
+        py_exceptions=False,
+        log_py_exceptions=False,
+        call_timeout: float | UndefinedType = undefined,
+        verify_ssl=True,
+    ):
         """Initialize a `JSONRPCClient`.
 
         Args:
@@ -477,7 +548,7 @@ class JSONRPCClient:
 
         """
         if uri is None:
-            uri = f'{UNIX_SOCKET_PREFIX}{MIDDLEWARE_RUN_DIR}/middlewared.sock'
+            uri = f"{UNIX_SOCKET_PREFIX}{MIDDLEWARE_RUN_DIR}/middlewared.sock"
 
         if call_timeout is undefined:
             call_timeout = CALL_TIMEOUT
@@ -508,8 +579,8 @@ class JSONRPCClient:
         self._ws.connect()
         self._connected.wait(30)
         if not self._connected.is_set():
-            raise ClientException('Failed connection handshake')
-        if hasattr(self, '_ws_connection_error'):
+            raise ClientException("Failed connection handshake")
+        if hasattr(self, "_ws_connection_error"):
             if isinstance(self._ws_connection_error, WebSocketException):
                 raise self._ws_connection_error
         if self._connection_error is not None:
@@ -536,7 +607,9 @@ class JSONRPCClient:
         except (AttributeError, WebSocketConnectionClosedException):
             # happens when other node on HA is rebooted, for example, and there are
             # running tasks in the event loop (i.e. failover.call_remote failover.get_disks_local)
-            raise ClientException('Unexpected closure of remote connection', errno.ECONNABORTED)
+            raise ClientException(
+                "Unexpected closure of remote connection", errno.ECONNABORTED
+            )
 
     def _recv(self, message: JSONRPCMessage):
         """Process a deserialized JSON-RPC v2.0 message from the server.
@@ -556,90 +629,145 @@ class JSONRPCClient:
 
         """
         try:
-            if 'method' in message:
-                match message['method']:
-                    case 'collection_update':
-                        params = message['params']
+            if "method" in message:
+                match message["method"]:
+                    case "collection_update":
+                        params = message["params"]
                         if self._new_style_jobs:
                             # With new-style jobs, the method return value will not be sent until the job is completed
                             # We expect just to receive job ID immediately, so let's set call return value to the
                             # newly added job ID.
-                            if params['collection'] == 'core.get_jobs' and params['msg'] in ['added', 'changed']:
-                                for message_id in params['fields']['message_ids']:
-                                    if (call := self._calls.get(message_id)) is not None:
+                            if params["collection"] == "core.get_jobs" and params[
+                                "msg"
+                            ] in ["added", "changed"]:
+                                for message_id in params["fields"]["message_ids"]:
+                                    if (
+                                        call := self._calls.get(message_id)
+                                    ) is not None:
                                         if call.wants_job:
                                             with self._jobs_lock:
-                                                self._jobs.setdefault(params['id'], {})  # type: ignore[typeddict-item]
-                                                self._unclaimed_jobs.pop(params['id'], None)
-                                        call.result = params['id']
-                                        call.job_id = params['id']
+                                                self._jobs.setdefault(params["id"], {})  # type: ignore[typeddict-item]
+                                                self._unclaimed_jobs.pop(
+                                                    params["id"], None
+                                                )
+                                        call.result = params["id"]
+                                        call.job_id = params["id"]
                                         call.returned.set()
                                         self._unregister_call(call)
                         if self._event_callbacks:
-                            if '*' in self._event_callbacks:
-                                for event in self._event_callbacks['*']:
-                                    self._run_callback(event, [params['msg'].upper()], params)
-                            if params['collection'] in self._event_callbacks:
-                                for event in self._event_callbacks[params['collection']]:
-                                    self._run_callback(event, [params['msg'].upper()], params)
-                    case 'notify_unsubscribed':
-                        unsubscribed = message['params']
-                        if unsubscribed['collection'] in self._event_callbacks:
-                            for event in self._event_callbacks[unsubscribed['collection']]:
-                                if 'error' in unsubscribed:
-                                    err = unsubscribed['error']
-                                    event['error'] = reason if err and (reason := err['reason']) else err
-                                event['event'].set()
+                            if "*" in self._event_callbacks:
+                                for event in self._event_callbacks["*"]:
+                                    self._run_callback(
+                                        event, [params["msg"].upper()], params
+                                    )
+                            if params["collection"] in self._event_callbacks:
+                                for event in self._event_callbacks[
+                                    params["collection"]
+                                ]:
+                                    self._run_callback(
+                                        event, [params["msg"].upper()], params
+                                    )
+                    case "notify_unsubscribed":
+                        unsubscribed = message["params"]
+                        if unsubscribed["collection"] in self._event_callbacks:
+                            for event in self._event_callbacks[
+                                unsubscribed["collection"]
+                            ]:
+                                if "error" in unsubscribed:
+                                    err = unsubscribed["error"]
+                                    event["error"] = (
+                                        reason
+                                        if err and (reason := err["reason"])
+                                        else err
+                                    )
+                                event["event"].set()
                     case _:
-                        logger.error('Received unknown notification %r', message['method'])
-            elif 'id' in message:
-                if self._set_options_call and message['id'] == self._set_options_call.id:
-                    if 'result' in message:
-                        if isinstance(message['result'], dict) and 'legacy_jobs' in message['result']:
-                            self._new_style_jobs = not message['result']['legacy_jobs']
-                    if 'error' in message:
+                        logger.error(
+                            "Received unknown notification %r", message["method"]
+                        )
+            elif "id" in message:
+                if (
+                    self._set_options_call
+                    and message["id"] == self._set_options_call.id
+                ):
+                    if "result" in message:
+                        if (
+                            isinstance(message["result"], dict)
+                            and "legacy_jobs" in message["result"]
+                        ):
+                            self._new_style_jobs = not message["result"]["legacy_jobs"]
+                    if "error" in message:
                         try:
-                            self._parse_error(message['error'], self._set_options_call)
+                            self._parse_error(message["error"], self._set_options_call)
                         except Exception:
-                            logger.error('Unhandled exception in JSONRPCClient._parse_error', exc_info=True)
+                            logger.error(
+                                "Unhandled exception in JSONRPCClient._parse_error",
+                                exc_info=True,
+                            )
                         else:
-                            logger.error('Error setting client options: %r', self._set_options_call.error)
+                            logger.error(
+                                "Error setting client options: %r",
+                                self._set_options_call.error,
+                            )
                     self._connected.set()
-                elif message['id'] is not None and (call := self._calls.get(message['id'])):
-                    if 'result' in message:
-                        call.result = message['result']
-                    if 'error' in message:
+                elif message["id"] is not None and (
+                    call := self._calls.get(message["id"])
+                ):
+                    if "result" in message:
+                        call.result = message["result"]
+                    if "error" in message:
                         try:
-                            self._parse_error(message['error'], call)
+                            self._parse_error(message["error"], call)
                         except Exception:
-                            logger.error('Unhandled exception in JSONRPCClient._parse_error', exc_info=True)
+                            logger.error(
+                                "Unhandled exception in JSONRPCClient._parse_error",
+                                exc_info=True,
+                            )
                     call.returned.set()
                     self._unregister_call(call)
                 else:
-                    if 'result' in message:
+                    if "result" in message:
                         if not self._new_style_jobs:
-                            logger.error('Received a success response for non-registered method call %r', message['id'])
-                    elif 'error' in message:
+                            logger.error(
+                                "Received a success response for non-registered method call %r",
+                                message["id"],
+                            )
+                    elif "error" in message:
                         try:
-                            error = self._parse_error_and_unpickle_exception(message['error'])[0]
+                            error = self._parse_error_and_unpickle_exception(
+                                message["error"]
+                            )[0]
                         except Exception:
-                            logger.error('Unhandled exception in JSONRPCClient._parse_error', exc_info=True)
-                            error = ClientException(f'Could not parse error from server: {message["error"]!r}')
+                            logger.error(
+                                "Unhandled exception in JSONRPCClient._parse_error",
+                                exc_info=True,
+                            )
+                            error = ClientException(
+                                f"Could not parse error from server: {message['error']!r}"
+                            )
 
-                        if message['id'] is None:
-                            logger.error('Received a global connection error: %r', error)
+                        if message["id"] is None:
+                            logger.error(
+                                "Received a global connection error: %r", error
+                            )
                             self._broadcast_error(error)
                         else:
                             if not self._new_style_jobs:
-                                logger.error('Received an error response for non-registered method call %r: %r',
-                                             message['id'], error)
+                                logger.error(
+                                    "Received an error response for non-registered method call %r: %r",
+                                    message["id"],
+                                    error,
+                                )
                     else:
                         if not self._new_style_jobs:
-                            logger.error('Received a response for non-registered method call %r', message['id'])
+                            logger.error(
+                                "Received a response for non-registered method call %r",
+                                message["id"],
+                            )
             else:
-                logger.error('Received unknown message %r', message)
+                logger.error("Received unknown message %r", message)
         except Exception:
-            logger.error('Unhandled exception in JSONRPCClient._recv', exc_info=True)
+            logger.error("Unhandled exception in JSONRPCClient._recv", exc_info=True)
 
     def _parse_error(self, error: ErrorObj, call: Call):
         """Convert an error received from the server into a `ClientException` and store it.
@@ -650,41 +778,55 @@ class JSONRPCClient:
         """
         call.error, call.py_exception = self._parse_error_and_unpickle_exception(error)
 
-    def _parse_error_and_unpickle_exception(self, error: ErrorObj) -> tuple[ClientException, Exception | None]:
+    def _parse_error_and_unpickle_exception(
+        self, error: ErrorObj
+    ) -> tuple[ClientException, Exception | None]:
         """Convert an error received from the server into a `ClientException` and, possibly, unpickle original
         exception.
 
         Args:
             error: The JSON object received in an error Response.
         """
-        code = JSONRPCError(error['code'])
+        code = JSONRPCError(error["code"])
         py_exception = None
-        if self._py_exceptions and code in [JSONRPCError.INVALID_PARAMS, JSONRPCError.TRUENAS_CALL_ERROR]:
-            data = error['data']
-            exc = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
-            if 'py_exception' in data:
+        if self._py_exceptions and code in [
+            JSONRPCError.INVALID_PARAMS,
+            JSONRPCError.TRUENAS_CALL_ERROR,
+        ]:
+            data = error["data"]
+            exc = ClientException(
+                data["reason"], data["error"], data["trace"], data["extra"]
+            )
+            if "py_exception" in data:
                 try:
-                    py_exception = pickle.loads(b64decode(data['py_exception']))
+                    py_exception = pickle.loads(b64decode(data["py_exception"]))
                 except Exception as e:
                     logger.warning("Error unpickling call exception: %r", e)
         elif code == JSONRPCError.INVALID_PARAMS:
-            exc = ValidationErrors(error['data']['extra'])
+            exc = ValidationErrors(error["data"]["extra"])
         elif code == JSONRPCError.TRUENAS_CALL_ERROR:
-            data = error['data']
-            exc = ClientException(data['reason'], data['error'], data['trace'], data['extra'])
+            data = error["data"]
+            exc = ClientException(
+                data["reason"], data["error"], data["trace"], data["extra"]
+            )
         elif code == JSONRPCError.METHOD_NOT_FOUND:
-            exc = ClientException(error.get('message') or code.name, ErrnoMixin.ENOMETHOD)
+            exc = ClientException(
+                error.get("message") or code.name, ErrnoMixin.ENOMETHOD
+            )
         else:
             if code == JSONRPCError.TRUENAS_TOO_MANY_CONCURRENT_CALLS:
-                logger.debug('A TRUENAS_TOO_MANY_CONCURRENT_CALLS error occurred. Currently running calls: %r', [
-                    call.method for call in self._calls.values()
-                ])
+                logger.debug(
+                    "A TRUENAS_TOO_MANY_CONCURRENT_CALLS error occurred. Currently running calls: %r",
+                    [call.method for call in self._calls.values()],
+                )
 
-            exc = ClientException(error.get('message') or code.name)
+            exc = ClientException(error.get("message") or code.name)
 
         return exc, py_exception
 
-    def _run_callback(self, event: _Payload, args: Iterable[str], kwargs: CollectionUpdateParams):
+    def _run_callback(
+        self, event: _Payload, args: Iterable[str], kwargs: CollectionUpdateParams
+    ):
         """Call the passed `_Payload`'s callback function.
 
         Block until the callback returns if `event['sync']` is set. Otherwise, run in a separate daemon `Thread`.
@@ -695,20 +837,26 @@ class JSONRPCClient:
             kwargs: Keyword arguments to the callback.
 
         """
-        if event['callback'] is None:
+        if event["callback"] is None:
             return
-        if event['sync']:
-            event['callback'](*args, **kwargs)
+        if event["sync"]:
+            event["callback"](*args, **kwargs)
         else:
-            Thread(target=event['callback'], args=args, kwargs=kwargs, daemon=True).start()
+            Thread(
+                target=event["callback"], args=args, kwargs=kwargs, daemon=True
+            ).start()
 
     def on_open(self):
         """Make an API call to `core.set_options` to configure how middlewared sends its responses."""
-        self._set_options_call = self.call("core.set_options", {
-            "legacy_jobs": False,
-            "private_methods": self._private_methods,
-            "py_exceptions": self._py_exceptions,
-        }, background=True)
+        self._set_options_call = self.call(
+            "core.set_options",
+            {
+                "legacy_jobs": False,
+                "private_methods": self._private_methods,
+                "py_exceptions": self._py_exceptions,
+            },
+            background=True,
+        )
 
     def on_close(self, code: int | None, reason: str | None = None):
         """Close this `JSONRPCClient` in response to the `WebSocketApp` closing.
@@ -720,7 +868,7 @@ class JSONRPCClient:
             reason: A message to accompany the closing code and provide more information.
 
         """
-        error = f'WebSocket connection closed with code={code!r}, reason={reason!r}'
+        error = f"WebSocket connection closed with code={code!r}, reason={reason!r}"
 
         self._connection_error = error
         self._connected.set()
@@ -738,21 +886,21 @@ class JSONRPCClient:
 
         # Snapshot: _jobs can be resized concurrently (a woken result() pops, the reader inserts).
         for job in list(self._jobs.values()):
-            event = job.get('__ready')
+            event = job.get("__ready")
             if event is None:
-                event = job['__ready'] = Event()
+                event = job["__ready"] = Event()
 
             if not event.is_set():
                 error_repr = repr(error)
                 # The connection dropped, so the real outcome is unknown (the job may still be
                 # running server-side); just mark it non-SUCCESS for Job.result().
-                job['state'] = 'UNKNOWN'
-                job['error'] = error_repr
-                job['exception'] = error_repr
-                job['exc_info'] = {
-                    'type': 'Exception',
-                    'repr': error_repr,
-                    'extra': None,
+                job["state"] = "UNKNOWN"
+                job["error"] = error_repr
+                job["exception"] = error_repr
+                job["exc_info"] = {
+                    "type": "Exception",
+                    "repr": error_repr,
+                    "extra": None,
                 }
                 event.set()
 
@@ -778,7 +926,7 @@ class JSONRPCClient:
             fields (JobFields): Contains job id and other information about the job from the server.
 
         """
-        job_id = fields['id']
+        job_id = fields["id"]
         with self._jobs_lock:
             if fields:
                 if job_id not in self._jobs:
@@ -797,16 +945,20 @@ class JSONRPCClient:
                         self._jobs.pop(evicted, None)
                 job = self._jobs[job_id]
                 job.update(fields)
-                if callable(job.get('__callback')):
-                    Thread(target=job['__callback'], args=(job,), daemon=True).start()
-                if mtype == 'CHANGED' and job['state'] in ('SUCCESS', 'FAILED', 'ABORTED'):
+                if callable(job.get("__callback")):
+                    Thread(target=job["__callback"], args=(job,), daemon=True).start()
+                if mtype == "CHANGED" and job["state"] in (
+                    "SUCCESS",
+                    "FAILED",
+                    "ABORTED",
+                ):
                     # If an Event already exist we just set it to mark it finished.
                     # Otherwise, we create a new Event.
                     # This is to prevent a race-condition of job finishing before
                     # the client can create the Event.
-                    event = job.get('__ready')
+                    event = job.get("__ready")
                     if event is None:
-                        event = job['__ready'] = Event()
+                        event = job["__ready"] = Event()
                     event.set()
 
     def _jobs_subscribe(self, silent=False):
@@ -814,7 +966,9 @@ class JSONRPCClient:
         self._jobs_watching = True
         try:
             self.subscribe(
-                'core.get_jobs', self._jobs_callback, sync=True,  # type: ignore[arg-type]  # requires fields
+                "core.get_jobs",
+                self._jobs_callback,  # type: ignore[arg-type]  # requires fields
+                sync=True,
                 _log_py_enotauthenticated=not silent,
             )
         except Exception as e:
@@ -827,23 +981,24 @@ class JSONRPCClient:
 
     def _is_enotauthenticated(self, e: BaseException):
         if isinstance(e, ClientException) or (
-            e.__module__ == "middlewared.service_exception" and e.__class__.__name__ == "CallError"
+            e.__module__ == "middlewared.service_exception"
+            and e.__class__.__name__ == "CallError"
         ):
-            if getattr(e, 'errno', None) == ClientException.ENOTAUTHENTICATED:
+            if getattr(e, "errno", None) == ClientException.ENOTAUTHENTICATED:
                 return True
 
         return False
 
     def call(
-            self,
-            method: str,
-            *params,
-            background=False,
-            callback: _JobCallback | None = None,
-            job: Literal['RETURN'] | bool = False,
-            register_call: bool | None = None,
-            timeout: float | UndefinedType = undefined,
-            _log_py_enotauthenticated: bool = True,
+        self,
+        method: str,
+        *params,
+        background=False,
+        callback: _JobCallback | None = None,
+        job: Literal["RETURN"] | bool = False,
+        register_call: bool | None = None,
+        timeout: float | UndefinedType = undefined,
+        _log_py_enotauthenticated: bool = True,
     ) -> Any:
         """The primary way to send call requests to the API.
 
@@ -892,30 +1047,37 @@ class JSONRPCClient:
         if register_call:
             self._register_call(c)
         try:
-            self._send({
-                'jsonrpc': '2.0',
-                'method': c.method,
-                'id': c.id,
-                'params': c.params,
-            })
+            self._send(
+                {
+                    "jsonrpc": "2.0",
+                    "method": c.method,
+                    "id": c.id,
+                    "params": c.params,
+                }
+            )
 
             if background:
                 return c
 
-            return self.wait(c, callback=callback, job=job, timeout=timeout,
-                             _log_py_enotauthenticated=_log_py_enotauthenticated)
+            return self.wait(
+                c,
+                callback=callback,
+                job=job,
+                timeout=timeout,
+                _log_py_enotauthenticated=_log_py_enotauthenticated,
+            )
         finally:
             if not background:
                 self._unregister_call(c)
 
     def wait(
-            self,
-            c: Call,
-            *,
-            callback: _JobCallback | None = None,
-            job: Literal['RETURN'] | bool = False,
-            timeout: float | UndefinedType = undefined,
-            _log_py_enotauthenticated: bool = True
+        self,
+        c: Call,
+        *,
+        callback: _JobCallback | None = None,
+        job: Literal["RETURN"] | bool = False,
+        timeout: float | UndefinedType = undefined,
+        _log_py_enotauthenticated: bool = True,
     ) -> Any:
         """Wait for an API call to return and return its result.
 
@@ -945,7 +1107,9 @@ class JSONRPCClient:
             if c.error:
                 if c.py_exception:
                     if self._log_py_exceptions and c.error.trace:
-                        if _log_py_enotauthenticated or not self._is_enotauthenticated(c.py_exception):
+                        if _log_py_enotauthenticated or not self._is_enotauthenticated(
+                            c.py_exception
+                        ):
                             logger.error(c.error.trace["formatted"])
                     raise c.py_exception
                 else:
@@ -957,7 +1121,7 @@ class JSONRPCClient:
                         raise ClientException("The method is not a job.")
 
                 jobobj = Job(self, c.result, callback=callback)
-                if job == 'RETURN':
+                if job == "RETURN":
                     return jobobj
 
                 return jobobj.result()
@@ -975,19 +1139,19 @@ class JSONRPCClient:
 
         """
         return {
-            'callback': None,
-            'sync': False,
-            'event': Event(),
+            "callback": None,
+            "sync": False,
+            "event": Event(),
         }
 
     def subscribe(
-            self,
-            name: str,
-            callback: _EventCallbackProtocol,
-            payload: _Payload | None = None,
-            sync: bool = False,
-            *,
-            _log_py_enotauthenticated: bool = True
+        self,
+        name: str,
+        callback: _EventCallbackProtocol,
+        payload: _Payload | None = None,
+        sync: bool = False,
+        *,
+        _log_py_enotauthenticated: bool = True,
     ) -> str:
         """Subscribe to an event by calling `core.subscribe`.
 
@@ -1003,21 +1167,26 @@ class JSONRPCClient:
 
         """
         payload = payload or self.event_payload()
-        payload.update({
-            'callback': callback,
-            'sync': sync,
-        })
+        payload.update(
+            {
+                "callback": callback,
+                "sync": sync,
+            }
+        )
         self._event_callbacks[name].append(payload)
 
         try:
-            payload['id'] = self.call(
-                'core.subscribe', name, timeout=10, _log_py_enotauthenticated=_log_py_enotauthenticated,
+            payload["id"] = self.call(
+                "core.subscribe",
+                name,
+                timeout=10,
+                _log_py_enotauthenticated=_log_py_enotauthenticated,
             )
         except Exception:
             self._event_callbacks[name].remove(payload)
             raise
 
-        return payload['id']
+        return payload["id"]
 
     def unsubscribe(self, id_: str):
         """Call `core.unsubscribe` and remove all associated `_Payload`s
@@ -1026,15 +1195,15 @@ class JSONRPCClient:
             id_: `id` of the `_Payload` to remove.
 
         """
-        self.call('core.unsubscribe', id_)
+        self.call("core.unsubscribe", id_)
         for k, events in list(self._event_callbacks.items()):
-            events = [v for v in events if v.get('id') != id_]
+            events = [v for v in events if v.get("id") != id_]
             if events:
                 self._event_callbacks[k] = events
             else:
                 self._event_callbacks.pop(k)
 
-    def ping(self, timeout: float = 10) -> Literal['pong']:
+    def ping(self, timeout: float = 10) -> Literal["pong"]:
         """Call `core.ping` to verify connection to the server.
 
         Args:
@@ -1045,7 +1214,7 @@ class JSONRPCClient:
             CallTimeout: The call took longer than `timeout` seconds to return.
 
         """
-        c = self.call('core.ping', background=True, register_call=True)
+        c = self.call("core.ping", background=True, register_call=True)
         return self.wait(c, timeout=timeout)
 
     def close(self):
@@ -1091,9 +1260,13 @@ class JSONRPCClient:
             ValueError: an error occurred during authentication, or channel binding was
                 required but could not be established.
         """
-        api_key_authenticate(self, auth_mechanism, username, api_key, channel_binding=channel_binding)
+        api_key_authenticate(
+            self, auth_mechanism, username, api_key, channel_binding=channel_binding
+        )
 
-    def login_with_password(self, username: str, password: str, *, otp_token: str | None = None) -> None:
+    def login_with_password(
+        self, username: str, password: str, *, otp_token: str | None = None
+    ) -> None:
         """
         Authenticate via username and password.
 
@@ -1110,166 +1283,194 @@ class JSONRPCClient:
                 account credentials expired, account lacks API access, or redirect required
         """
         try:
-            resp = self.call('auth.login_ex', {
-                'mechanism': 'PASSWORD_PLAIN',
-                'username': username,
-                'password': password,
-            })
+            resp = self.call(
+                "auth.login_ex",
+                {
+                    "mechanism": "PASSWORD_PLAIN",
+                    "username": username,
+                    "password": password,
+                },
+            )
         except ClientException as exc:
-            if exc.error == 'Method does not exist':
+            if exc.error == "Method does not exist":
                 # Pre-25.04 server
-                if not self.call('auth.login', username, password, otp_token):
-                    raise ValueError('Invalid username or password')
+                if not self.call("auth.login", username, password, otp_token):
+                    raise ValueError("Invalid username or password")
                 return
             raise
 
         self._handle_login_ex_response(resp, otp_token)
 
     def _handle_login_ex_response(self, resp: dict, otp_token: str | None) -> None:
-        match resp['response_type']:
-            case 'SUCCESS':
+        match resp["response_type"]:
+            case "SUCCESS":
                 return
-            case 'OTP_REQUIRED':
+            case "OTP_REQUIRED":
                 if otp_token is None:
                     raise ValueError(
-                        'Two-factor authentication is required for this account. '
-                        'Call login_with_password again with otp_token specified.'
+                        "Two-factor authentication is required for this account. "
+                        "Call login_with_password again with otp_token specified."
                     )
-                otp_resp = self.call('auth.login_ex_continue', {
-                    'mechanism': 'OTP_TOKEN',
-                    'otp_token': otp_token,
-                })
-                self._handle_login_ex_response(otp_resp, None)
-            case 'REDIRECT':
-                urls = ', '.join(resp.get('urls', []))
-                raise ValueError(
-                    f'Authentication must be performed on active storage controller. '
-                    f'Redirect URLs: {urls}'
+                otp_resp = self.call(
+                    "auth.login_ex_continue",
+                    {
+                        "mechanism": "OTP_TOKEN",
+                        "otp_token": otp_token,
+                    },
                 )
-            case 'EXPIRED':
-                raise ValueError('Account credentials have expired')
-            case 'DENIED':
-                raise ValueError('Account does not have API access')
+                self._handle_login_ex_response(otp_resp, None)
+            case "REDIRECT":
+                urls = ", ".join(resp.get("urls", []))
+                raise ValueError(
+                    f"Authentication must be performed on active storage controller. "
+                    f"Redirect URLs: {urls}"
+                )
+            case "EXPIRED":
+                raise ValueError("Account credentials have expired")
+            case "DENIED":
+                raise ValueError("Account does not have API access")
             case _:
-                raise ValueError('Invalid username or password')
+                raise ValueError("Invalid username or password")
 
 
 def get_parser():
     """Construct the argument parser for `midclt`."""
     parser = argparse.ArgumentParser(
-        prog='midclt',
+        prog="midclt",
         description=(
-            'Command-line client for the TrueNAS middleware API. '
-            'When run locally on a TrueNAS server, midclt uses the middleware '
-            'UNIX socket by default. Pass --uri to reach a remote server over '
-            'a WebSocket: the JSON-RPC 2.0 endpoint on TrueNAS 25.04 and later '
-            '(e.g. ws://host/api/current), or the legacy WebSocket endpoint on '
-            'earlier releases (e.g. ws://host/websocket).'
+            "Command-line client for the TrueNAS middleware API. "
+            "When run locally on a TrueNAS server, midclt uses the middleware "
+            "UNIX socket by default. Pass --uri to reach a remote server over "
+            "a WebSocket: the JSON-RPC 2.0 endpoint on TrueNAS 25.04 and later "
+            "(e.g. ws://host/api/current), or the legacy WebSocket endpoint on "
+            "earlier releases (e.g. ws://host/websocket)."
         ),
         epilog=(
-            'Examples:\n'
-            '  midclt ping\n'
-            '  midclt call system.info\n'
+            "Examples:\n"
+            "  midclt ping\n"
+            "  midclt call system.info\n"
             '  midclt call user.query \'[["username", "=", "root"]]\'\n'
-            '  midclt -t 120 call interface.sync true\n'
-            '  midclt --job --job-print description call pool.import_on_boot\n'
-            '  midclt -u ws://nas.example/api/current -U admin -P secret call system.info\n'
-            '  midclt -K /root/apikey.json call user.create - < new_user.json\n'
-            '  midclt subscribe -n 1 core.get_jobs\n'
+            "  midclt -t 120 call interface.sync true\n"
+            "  midclt --job --job-print description call pool.import_on_boot\n"
+            "  midclt -u ws://nas.example/api/current -U admin -P secret call system.info\n"
+            "  midclt -K /root/apikey.json call user.create - < new_user.json\n"
+            "  midclt subscribe -n 1 core.get_jobs\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     # midclt options
     parser.add_argument(
-        '-u', '--uri', metavar='URI',
+        "-u",
+        "--uri",
+        metavar="URI",
         help=(
-            'WebSocket URI of the TrueNAS server. Use ws(s)://host/api/current '
-            'for TrueNAS 25.04 and later (JSON-RPC 2.0), or ws(s)://host/websocket '
-            'for earlier releases (legacy protocol). Defaults to the local '
-            'middleware UNIX socket when run on a TrueNAS server.'
+            "WebSocket URI of the TrueNAS server. Use ws(s)://host/api/current "
+            "for TrueNAS 25.04 and later (JSON-RPC 2.0), or ws(s)://host/websocket "
+            "for earlier releases (legacy protocol). Defaults to the local "
+            "middleware UNIX socket when run on a TrueNAS server."
         ),
     )
     parser.add_argument(
-        '-U', '--username', metavar='USERNAME',
-        help='Username for authentication. Used with --password or --api-key.',
+        "-U",
+        "--username",
+        metavar="USERNAME",
+        help="Username for authentication. Used with --password or --api-key.",
     )
     parser.add_argument(
-        '-P', '--password', metavar='PASSWORD',
+        "-P",
+        "--password",
+        metavar="PASSWORD",
         help=(
-            'Password for authentication. Prompted interactively if '
-            '--username is given without --password or --api-key.'
+            "Password for authentication. Prompted interactively if "
+            "--username is given without --password or --api-key."
         ),
     )
     parser.add_argument(
-        '-K', '--api-key', metavar='KEY',
-        help='API key string, or path to a file containing the key.',
+        "-K",
+        "--api-key",
+        metavar="KEY",
+        help="API key string, or path to a file containing the key.",
     )
     parser.add_argument(
-        '-t', '--timeout', type=int, metavar='SECONDS',
-        help='Timeout in seconds for the API call.',
+        "-t",
+        "--timeout",
+        type=int,
+        metavar="SECONDS",
+        help="Timeout in seconds for the API call.",
     )
     parser.add_argument(
-        '--insecure', action='store_true',
-        help='Disable SSL certificate verification (WARNING: not for production).',
+        "--insecure",
+        action="store_true",
+        help="Disable SSL certificate verification (WARNING: not for production).",
     )
     parser.add_argument(
-        '--no-channel-binding', action='store_true',
+        "--no-channel-binding",
+        action="store_true",
         help=(
-            'Disable SCRAM-PLUS channel binding for API-key login. By default, API-key '
-            'authentication over TLS (wss://) binds to the server certificate and fails '
-            'if binding cannot be negotiated. Use this over a plain ws:// connection or '
-            'against a server that does not support channel binding.'
+            "Disable SCRAM-PLUS channel binding for API-key login. By default, API-key "
+            "authentication over TLS (wss://) binds to the server certificate and fails "
+            "if binding cannot be negotiated. Use this over a plain ws:// connection or "
+            "against a server that does not support channel binding."
         ),
     )
     parser.add_argument(
-        '--plain', action='store_true',
+        "--plain",
+        action="store_true",
         help=(
-            'Authenticate the API key using PLAIN (send the key in plaintext) instead of '
-            'SCRAM. Required for servers that do not support SCRAM (TrueNAS before 26). '
-            'WARNING: transmits the raw API key; only the TLS layer protects it.'
+            "Authenticate the API key using PLAIN (send the key in plaintext) instead of "
+            "SCRAM. Required for servers that do not support SCRAM (TrueNAS before 26). "
+            "WARNING: transmits the raw API key; only the TLS layer protects it."
         ),
     )
 
     subparsers = parser.add_subparsers(
-        dest='name', metavar='<subcommand>',
-        title='subcommands',
+        dest="name",
+        metavar="<subcommand>",
+        title="subcommands",
     )
 
     # call options
     call_description = (
-        'Invoke a TrueNAS API method. Any arguments after the method name are '
-        'parsed as JSON when possible and otherwise passed as raw strings. '
+        "Invoke a TrueNAS API method. Any arguments after the method name are "
+        "parsed as JSON when possible and otherwise passed as raw strings. "
         "Use '-' as the final argument to read a single JSON payload from stdin, "
-        'which is useful for keeping secrets out of shell history and process listings.'
+        "which is useful for keeping secrets out of shell history and process listings."
     )
     iparser = subparsers.add_parser(
-        'call',
-        help='Call a TrueNAS API method.',
+        "call",
+        help="Call a TrueNAS API method.",
         description=call_description,
     )
     iparser.add_argument(
-        '-q', '--quiet', action='store_true',
-        help='Suppress error output on API call failure.',
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Suppress error output on API call failure.",
     )
     iparser.add_argument(
-        '-j', '--job', action='store_true',
-        help='Treat the call as a long-running job and track progress until completion.',
+        "-j",
+        "--job",
+        action="store_true",
+        help="Treat the call as a long-running job and track progress until completion.",
     )
     iparser.add_argument(
-        '-jp', '--job-print',
+        "-jp",
+        "--job-print",
         type=str,
-        choices=('progressbar', 'description'),
-        default='progressbar',
+        choices=("progressbar", "description"),
+        default="progressbar",
         help=(
             "How to render job progress: 'progressbar' (animated bar, default) "
             "or 'description' (status text lines, suitable for systemd units and logs)."
         ),
     )
     iparser.add_argument(
-        'method', nargs='+', metavar='METHOD',
+        "method",
+        nargs="+",
+        metavar="METHOD",
         help=(
-            'API method name followed by zero or more arguments. Each argument '
+            "API method name followed by zero or more arguments. Each argument "
             "is parsed as JSON when possible, otherwise passed as a string. "
             "Use '-' as the final argument to read one JSON payload from stdin."
         ),
@@ -1277,36 +1478,43 @@ def get_parser():
 
     # ping
     subparsers.add_parser(
-        'ping',
-        help='Call core.ping on the server and print the response.',
+        "ping",
+        help="Call core.ping on the server and print the response.",
         description=(
             "Call the core.ping API method to verify connectivity. Prints 'pong' "
-            'on success. This endpoint does not require authentication and is '
-            'rate-limited on the server side.'
+            "on success. This endpoint does not require authentication and is "
+            "rate-limited on the server side."
         ),
     )
 
     # subscribe options
     iparser = subparsers.add_parser(
-        'subscribe',
-        help='Receive event messages in a continuous stream.',
+        "subscribe",
+        help="Receive event messages in a continuous stream.",
         description=(
-            'Subscribe to a middleware event and print each message as it arrives. '
-            'Runs until interrupted, until --number events have been received, '
-            'or until --timeout seconds have elapsed.'
+            "Subscribe to a middleware event and print each message as it arrives. "
+            "Runs until interrupted, until --number events have been received, "
+            "or until --timeout seconds have elapsed."
         ),
     )
     iparser.add_argument(
-        'event', metavar='EVENT',
-        help='Event name to subscribe to (e.g. core.get_jobs).',
+        "event",
+        metavar="EVENT",
+        help="Event name to subscribe to (e.g. core.get_jobs).",
     )
     iparser.add_argument(
-        '-n', '--number', type=int, metavar='N',
-        help='Exit after receiving this many events.',
+        "-n",
+        "--number",
+        type=int,
+        metavar="N",
+        help="Exit after receiving this many events.",
     )
     iparser.add_argument(
-        '-t', '--timeout', type=int, metavar='SECONDS',
-        help='Stop waiting after this many seconds.',
+        "-t",
+        "--timeout",
+        type=int,
+        metavar="SECONDS",
+        help="Stop waiting after this many seconds.",
     )
 
     return parser
@@ -1332,12 +1540,18 @@ def main():
     def from_json(args):
         stdin_content = None
         for i in args:
-            if i == '-':
+            if i == "-":
                 # Read from stdin once and cache it
                 if stdin_content is None:
                     if sys.stdin.isatty():
-                        print("Error: Cannot read from stdin when connected to a terminal.", file=sys.stderr)
-                        print("Please pipe input or provide the argument directly.", file=sys.stderr)
+                        print(
+                            "Error: Cannot read from stdin when connected to a terminal.",
+                            file=sys.stderr,
+                        )
+                        print(
+                            "Please pipe input or provide the argument directly.",
+                            file=sys.stderr,
+                        )
                         sys.exit(1)
                     stdin_content = sys.stdin.read()
                 try:
@@ -1350,7 +1564,7 @@ def main():
                 except Exception:
                     yield i
 
-    if args.name == 'call':
+    if args.name == "call":
         try:
             with Client(uri=args.uri, verify_ssl=not args.insecure) as c:
                 try:
@@ -1358,9 +1572,11 @@ def main():
                         c.login_with_password(args.username, args.password)
                     elif args.api_key:
                         c.login_with_api_key(
-                            args.username, args.api_key,
+                            args.username,
+                            args.api_key,
                             auth_mechanism=(
-                                APIKeyAuthMech.PLAIN if args.plain
+                                APIKeyAuthMech.PLAIN
+                                if args.plain
                                 else APIKeyAuthMech.SCRAM
                             ),
                             channel_binding=not args.no_channel_binding,
@@ -1371,45 +1587,61 @@ def main():
                 try:
                     kwargs = {}
                     if args.timeout:
-                        kwargs['timeout'] = args.timeout
+                        kwargs["timeout"] = args.timeout
                     if args.job:
-                        if args.job_print == 'progressbar':
+                        if args.job_print == "progressbar":
                             # display the job progress and status message while we wait
 
                             def pb_callback(progress_bar: ProgressBar, job: _JobDict):
                                 """Update `progress_bar` with information in `job['progress']`."""
                                 try:
                                     progress_bar.update(
-                                        job['progress']['percent'], job['progress']['description']
+                                        job["progress"]["percent"],
+                                        job["progress"]["description"],
                                     )
                                 except Exception as e:
-                                    print(f'Failed to update progress bar: {e!s}', file=sys.stderr)
+                                    print(
+                                        f"Failed to update progress bar: {e!s}",
+                                        file=sys.stderr,
+                                    )
 
                             with ProgressBar() as progress_bar:
                                 kwargs.update(
                                     job=True,
-                                    callback=lambda job: pb_callback(progress_bar, job)
+                                    callback=lambda job: pb_callback(progress_bar, job),
                                 )
-                                rv = c.call(args.method[0], *list(from_json(args.method[1:])), **kwargs)
+                                rv = c.call(
+                                    args.method[0],
+                                    *list(from_json(args.method[1:])),
+                                    **kwargs,
+                                )
                                 progress_bar.finish()
                         else:
-                            lastdesc = ''
+                            lastdesc = ""
 
                             def callback(job: _JobDict):
                                 """Print `job`'s description to `stderr` if it has changed."""
                                 nonlocal lastdesc
-                                desc = job['progress']['description']
+                                desc = job["progress"]["description"]
                                 if desc is not None and desc != lastdesc:
                                     print(desc, file=sys.stderr)
                                 lastdesc = desc
 
-                            kwargs.update({
-                                'job': True,
-                                'callback': callback,
-                            })
-                            rv = c.call(args.method[0], *list(from_json(args.method[1:])), **kwargs)
+                            kwargs.update(
+                                {
+                                    "job": True,
+                                    "callback": callback,
+                                }
+                            )
+                            rv = c.call(
+                                args.method[0],
+                                *list(from_json(args.method[1:])),
+                                **kwargs,
+                            )
                     else:
-                        rv = c.call(args.method[0], *list(from_json(args.method[1:])), **kwargs)
+                        rv = c.call(
+                            args.method[0], *list(from_json(args.method[1:])), **kwargs
+                        )
                     if isinstance(rv, (int, str)):
                         print(rv)
                     else:
@@ -1419,30 +1651,34 @@ def main():
                         if e.error:
                             print(e.error, file=sys.stderr)
                         if e.trace:
-                            print(e.trace['formatted'], file=sys.stderr)
+                            print(e.trace["formatted"], file=sys.stderr)
                         if e.extra:
                             pprint.pprint(e.extra, stream=sys.stderr)
                     sys.exit(1)
         except ssl.SSLCertVerificationError:
-            print('SSL certificate verification failed.\n', file=sys.stderr)
-            print('You can either:', file=sys.stderr)
-            print('  1. Install the server\'s SSL certificate in your system\'s trust store', file=sys.stderr)
-            print('  2. Use the --insecure flag to disable SSL verification (not recommended for production)',
-                  file=sys.stderr)
+            print("SSL certificate verification failed.\n", file=sys.stderr)
+            print("You can either:", file=sys.stderr)
+            print(
+                "  1. Install the server's SSL certificate in your system's trust store",
+                file=sys.stderr,
+            )
+            print(
+                "  2. Use the --insecure flag to disable SSL verification (not recommended for production)",
+                file=sys.stderr,
+            )
             sys.exit(1)
         except (FileNotFoundError, ConnectionRefusedError):
-            print('Failed to run middleware call. Daemon not running?', file=sys.stderr)
+            print("Failed to run middleware call. Daemon not running?", file=sys.stderr)
             sys.exit(1)
-    elif args.name == 'ping':
+    elif args.name == "ping":
         with Client(uri=args.uri, verify_ssl=not args.insecure) as c:
             if not (result := c.ping()):
                 sys.exit(1)
             print(result)
-    elif args.name == 'subscribe':
+    elif args.name == "subscribe":
         with Client(uri=args.uri, verify_ssl=not args.insecure) as c:
-
             subscribe_payload = c.event_payload()
-            event = subscribe_payload['event']
+            event = subscribe_payload["event"]
             number = 0
 
             def cb(mtype: str, **message):
@@ -1458,12 +1694,12 @@ def main():
             if not event.wait(timeout=args.timeout):
                 sys.exit(1)
 
-            if 'error' in subscribe_payload and subscribe_payload['error']:
-                raise ValueError(subscribe_payload['error'])
+            if "error" in subscribe_payload and subscribe_payload["error"]:
+                raise ValueError(subscribe_payload["error"])
             sys.exit(0)
     else:
         parser.print_help()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
