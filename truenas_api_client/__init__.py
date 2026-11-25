@@ -77,6 +77,7 @@ from .jsonrpc import (
 from .utils import (
     MIDDLEWARE_RUN_DIR,
     ProgressBar,
+    TCPKeepalive,
     undefined,
     UndefinedType,
     set_socket_options,
@@ -103,6 +104,7 @@ class Client:
         log_py_exceptions=False,
         call_timeout: float | UndefinedType = undefined,
         verify_ssl=True,
+        tcp_keepalive: TCPKeepalive = TCPKeepalive(),
     ):
         """Initialize either a `JSONRPCClient` or a `LegacyClient`.
 
@@ -118,6 +120,7 @@ class Client:
             call_timeout: Number of seconds to allow an API call before timing out. Can be overridden on a per-call
                 basis. Defaults to `CALL_TIMEOUT`.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
+            tcp_keepalive: TCP keepalive settings for the socket. Unix domain sockets ignore them.
 
         Raises:
             ClientException: `WSClient` timed out or some other connection error occurred.
@@ -138,6 +141,7 @@ class Client:
             log_py_exceptions,
             call_timeout,
             verify_ssl,
+            tcp_keepalive,
         )
 
     def uri_check(self, uri: str | None, py_exceptions: bool):
@@ -172,6 +176,7 @@ class WSClient:
         client: "JSONRPCClient",
         reserved_ports: bool = False,
         verify_ssl: bool = True,
+        tcp_keepalive: TCPKeepalive = TCPKeepalive(),
     ):
         """Initialize a `WSClient`.
 
@@ -180,12 +185,14 @@ class WSClient:
             client: Reference to the `JSONRPCClient` instance that uses this object.
             reserved_ports: `True` if the `socket` should bind to a reserved port, i.e. 600-1024.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
+            tcp_keepalive: TCP keepalive settings for the `socket`. Unix domain sockets ignore them.
 
         """
         self.url = url
         self.client = client
         self.reserved_ports = reserved_ports
         self.verify_ssl = verify_ssl
+        self.tcp_keepalive = tcp_keepalive
 
         self.socket: socket.socket
         self.app: WebSocketApp
@@ -315,7 +322,7 @@ class WSClient:
         """
         # TCP keepalive settings don't apply to local unix sockets
         if UNIX_SOCKET_PREFIX not in self.url:
-            set_socket_options(self.socket)
+            set_socket_options(self.socket, self.tcp_keepalive)
 
         # if we're able to connect put socket in blocking mode
         # until all operations complete or error is raised
@@ -529,6 +536,7 @@ class JSONRPCClient:
         log_py_exceptions=False,
         call_timeout: float | UndefinedType = undefined,
         verify_ssl=True,
+        tcp_keepalive: TCPKeepalive = TCPKeepalive(),
     ):
         """Initialize a `JSONRPCClient`.
 
@@ -542,6 +550,7 @@ class JSONRPCClient:
             call_timeout: Number of seconds to allow an API call before timing out. Can be overridden on a per-call
                 basis. Defaults to `CALL_TIMEOUT`.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
+            tcp_keepalive: TCP keepalive settings for the socket. Unix domain sockets ignore them.
 
         Raises:
             ClientException: `WSClient` timed out or some other connection error occurred.
@@ -575,6 +584,7 @@ class JSONRPCClient:
             client=self,
             reserved_ports=reserved_ports,
             verify_ssl=verify_ssl,
+            tcp_keepalive=tcp_keepalive,
         )
         self._ws.connect()
         self._connected.wait(30)

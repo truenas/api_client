@@ -9,6 +9,7 @@ Attributes:
 
 """
 
+from dataclasses import dataclass
 import socket
 import sys
 
@@ -144,27 +145,36 @@ class ProgressBar(object):
             self.write_stream.write("\n")
 
 
-def set_socket_options(socobj):
+@dataclass(frozen=True)
+class TCPKeepalive:
+    """TCP keepalive settings for a client socket. All values are in seconds, except `count`.
+
+    The defaults match the `net` package from the Go standard library. It is a de facto
+    standard for long-lived connections in cloud-native infrastructure. The client closes
+    the connection after the peer is silent for `idle + interval * count` seconds
+    (150 seconds by default).
+
+    """
+
+    idle: int = 15
+    """Time the connection stays idle before the first probe."""
+    interval: int = 15
+    """Time between probes."""
+    count: int = 9
+    """Number of unanswered probes before the connection is closed."""
+
+
+def set_socket_options(socobj, keepalive: TCPKeepalive):
     plat = sys.platform
     if plat not in ("win32", "linux", "freebsd", "darwin"):
         raise RuntimeError("Unsupported platform")
 
-    # enable keepalives on the socket
     socobj.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
-    # If the other node panics then the socket will
-    # remain open and we'll have to wait until the
-    # TCP timeout value expires (60 seconds default).
-    # To account for this:
-    #   1. if the socket is idle for 1 seconds
-    #   2. send a keepalive packet every 1 second
-    #   3. for a maximum up to 5 times
-    #
-    # after 5 times (5 seconds of no response), the socket will be closed
     if sys.platform == "darwin":
-        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, 1)
+        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPALIVE, keepalive.idle)
     else:
-        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 1)
+        socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, keepalive.idle)
 
-    socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 1)
-    socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+    socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, keepalive.interval)
+    socobj.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, keepalive.count)
