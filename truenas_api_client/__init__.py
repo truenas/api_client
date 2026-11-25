@@ -39,6 +39,7 @@ import logging
 import pickle
 import pprint
 import random
+import re
 import socket
 import struct
 import sys
@@ -103,6 +104,7 @@ class Client:
         log_py_exceptions=False,
         call_timeout: float | UndefinedType = undefined,
         verify_ssl=True,
+        handshake_timeout: float | UndefinedType = undefined,
     ):
         """Initialize either a `JSONRPCClient` or a `LegacyClient`.
 
@@ -118,6 +120,8 @@ class Client:
             call_timeout: Number of seconds to allow an API call before timing out. Can be overridden on a per-call
                 basis. Defaults to `CALL_TIMEOUT`.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
+            handshake_timeout: Number of seconds to wait for the connection handshake to complete. Defaults to 60
+                if `uri` contains an API version and to 10 otherwise.
 
         Raises:
             ClientException: `WSClient` timed out or some other connection error occurred.
@@ -138,6 +142,7 @@ class Client:
             log_py_exceptions,
             call_timeout,
             verify_ssl,
+            handshake_timeout,
         )
 
     def uri_check(self, uri: str | None, py_exceptions: bool):
@@ -529,6 +534,7 @@ class JSONRPCClient:
         log_py_exceptions=False,
         call_timeout: float | UndefinedType = undefined,
         verify_ssl=True,
+        handshake_timeout: float | UndefinedType = undefined,
     ):
         """Initialize a `JSONRPCClient`.
 
@@ -542,6 +548,8 @@ class JSONRPCClient:
             call_timeout: Number of seconds to allow an API call before timing out. Can be overridden on a per-call
                 basis. Defaults to `CALL_TIMEOUT`.
             verify_ssl: `True` if SSL certificate should be verified before connecting.
+            handshake_timeout: Number of seconds to wait for the connection handshake to complete. Defaults to 60
+                if `uri` contains an API version and to 10 otherwise.
 
         Raises:
             ClientException: `WSClient` timed out or some other connection error occurred.
@@ -550,8 +558,16 @@ class JSONRPCClient:
         if uri is None:
             uri = f"{UNIX_SOCKET_PREFIX}{MIDDLEWARE_RUN_DIR}/middlewared.sock"
 
-        if call_timeout is undefined:
+        if isinstance(call_timeout, UndefinedType):
             call_timeout = CALL_TIMEOUT
+
+        if isinstance(handshake_timeout, UndefinedType):
+            # The first call on an older API version makes the server load the models of every newer version,
+            # so it might take a while to perform the handshake.
+            if re.search(r"/api/v[\d.]+$", uri):
+                handshake_timeout = 60
+            else:
+                handshake_timeout = 10
 
         self._calls: dict[str, Call] = {}
         self._jobs: defaultdict[str, _JobDict] = defaultdict(dict)  # type: ignore
@@ -577,7 +593,7 @@ class JSONRPCClient:
             verify_ssl=verify_ssl,
         )
         self._ws.connect()
-        self._connected.wait(30)
+        self._connected.wait(handshake_timeout)
         if not self._connected.is_set():
             raise ClientException("Failed connection handshake")
         if hasattr(self, "_ws_connection_error"):
@@ -1021,7 +1037,7 @@ class JSONRPCClient:
         if register_call is None:
             register_call = not background
 
-        if timeout is undefined:
+        if isinstance(timeout, UndefinedType):
             timeout = self._call_timeout
 
         if not self._jobs_watching:
@@ -1091,11 +1107,11 @@ class JSONRPCClient:
             BaseException: The call ended in error and `py_exception` was enabled for `c`.
 
         """
-        if timeout is undefined:
+        if isinstance(timeout, UndefinedType):
             timeout = self._call_timeout
 
         try:
-            if not c.returned.wait(timeout):  # type: ignore
+            if not c.returned.wait(timeout):
                 raise CallTimeout()
 
             if c.error:

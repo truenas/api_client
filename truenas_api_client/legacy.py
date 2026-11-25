@@ -226,6 +226,7 @@ class LegacyClient:
         log_py_exceptions=False,
         call_timeout: float | UndefinedType = undefined,
         verify_ssl=True,
+        handshake_timeout: float | UndefinedType = undefined,
     ):
         """
         Arguments:
@@ -234,8 +235,11 @@ class LegacyClient:
         if uri is None:
             uri = f"ws+unix://{MIDDLEWARE_RUN_DIR}/middlewared.sock"
 
-        if call_timeout is undefined:
+        if isinstance(call_timeout, UndefinedType):
             call_timeout = CALL_TIMEOUT
+
+        if isinstance(handshake_timeout, UndefinedType):
+            handshake_timeout = 10
 
         self._calls: dict[str, Call] = {}
         self._jobs: defaultdict[Any, dict[str, Any]] = defaultdict(dict)
@@ -260,7 +264,7 @@ class LegacyClient:
             verify_ssl=verify_ssl,
         )
         self._ws.connect()
-        self._connected.wait(10)
+        self._connected.wait(handshake_timeout)
         if not self._connected.is_set():
             raise ClientException("Failed connection handshake")
         if self._connection_error is not None:
