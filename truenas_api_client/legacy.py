@@ -24,17 +24,32 @@ from . import ejson as json
 from .auth_api_key import APIKeyAuthMech, api_key_authenticate
 from .config import CALL_TIMEOUT, UNCLAIMED_JOBS_MAX
 from .exc import ReserveFDException, ClientException, ValidationErrors, CallTimeout
-from .utils import MIDDLEWARE_RUN_DIR, undefined, UndefinedType, set_socket_options
+from .utils import (
+    MIDDLEWARE_RUN_DIR,
+    TCPKeepalive,
+    undefined,
+    UndefinedType,
+    set_socket_options,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class WSClient:
-    def __init__(self, url, *, client, reserved_ports=False, verify_ssl=True):
+    def __init__(
+        self,
+        url,
+        *,
+        client,
+        reserved_ports=False,
+        verify_ssl=True,
+        tcp_keepalive: TCPKeepalive = TCPKeepalive(),
+    ):
         self.url = url
         self.client = client
         self.reserved_ports = reserved_ports
         self.verify_ssl = verify_ssl
+        self.tcp_keepalive = tcp_keepalive
 
         self.socket: Any = None
         self.app: Any = None
@@ -120,7 +135,7 @@ class WSClient:
     def _on_open(self, app):
         # TCP keepalive settings don't apply to local unix sockets
         if "ws+unix" not in self.url:
-            set_socket_options(self.socket)
+            set_socket_options(self.socket, self.tcp_keepalive)
 
         # if we're able to connect put socket in blocking mode
         # until all operations complete or error is raised
@@ -226,10 +241,12 @@ class LegacyClient:
         log_py_exceptions=False,
         call_timeout: float | UndefinedType = undefined,
         verify_ssl=True,
+        tcp_keepalive: TCPKeepalive = TCPKeepalive(),
     ):
         """
         Arguments:
            :reserved_ports(bool): should the local socket used a reserved port
+           :tcp_keepalive(TCPKeepalive): TCP keepalive settings for the socket. Unix domain sockets ignore them.
         """
         if uri is None:
             uri = f"ws+unix://{MIDDLEWARE_RUN_DIR}/middlewared.sock"
@@ -258,6 +275,7 @@ class LegacyClient:
             client=self,
             reserved_ports=reserved_ports,
             verify_ssl=verify_ssl,
+            tcp_keepalive=tcp_keepalive,
         )
         self._ws.connect()
         self._connected.wait(10)
